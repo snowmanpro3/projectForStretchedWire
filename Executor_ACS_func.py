@@ -560,10 +560,8 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             # self.start_homing_motion() ТУТ ДОБАВИТЬ ВТОРОЙ ИНТЕГРАЛ
             pass
 
-    def axisstate(self):
-        data = self.axes_data
-        axis_state = acsc.getAxisState(self.stand.hc, 0, acsc.MST_MOVE)
-        print(axis_state)
+    def test_circle_movement(self):
+        pass
 
 
 if __name__ == '__main__':
