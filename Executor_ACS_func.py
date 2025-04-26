@@ -560,10 +560,103 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             # self.start_homing_motion() ТУТ ДОБАВИТЬ ВТОРОЙ ИНТЕГРАЛ
             pass
 
-    def axisstate(self):
-        data = self.axes_data
-        axis_state = acsc.getAxisState(self.stand.hc, 0, acsc.MST_MOVE)
-        print(axis_state)
+    def circle_test(self):
+        if not self.stand:
+            self.show_error("Контроллер не подключён!")
+            return
+
+        # Инициализация лога координат
+        self.circular_motion_log = {
+            'time': [],
+            'theta': [],
+            'x_pos': [],
+            'y_pos': [],
+            'eds':[],
+        }
+        self.start_time = time.time()
+        vector_velocity = float(self.circ_speed_input.text())
+        radius = float(self.circ_radius_input.text())
+
+        axesM = [0, 1, 2, 3]  # List of axes to move (all) for toPointM
+        leader = axesM[0]
+
+        center_x = self.axes_data[1]["axis_obj"].get_pos()  # Получаем текущую позицию оси 1
+        center_y = self.axes_data[0]["axis_obj"].get_pos()  # Получаем текущую позицию оси 0
+        circle_angle_rad = 2*np.pi  # Whole circle
+        center_point = [center_x, center_y]
+        center_points = [center_y, center_x, center_y, center_x]
+
+        start_x = center_x + radius
+        start_y = center_y
+        start_point = [start_x, start_y]
+        start_points = [start_y, start_x, start_y, start_x]
+
+        self.stand.enable_all()  # Включаем все оси перед движением
+        acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, axesM, start_points, acsc.SYNCHRONOUS)
+        acsc.waitMotionEnd(self.stand.hc, leader, 30000)
+        print('Прибыла в начальную точку')
+
+        try:
+            acsc.extendedSegmentedMotionV2(self.stand.hc, acsc.AMF_VELOCITY,
+                                        axesM, start_points,
+                                        vector_velocity, #? Tangential velocity 😎😎😎!!!!! (мб 10 мм/с)
+                                        acsc.NONE, # EndVelocity
+                                        acsc.NONE, # JunctionVelocity
+                                        acsc.NONE, # Angle
+                                        acsc.NONE, # CurveVelocity
+                                        acsc.NONE, # Deviation
+                                        radius, # Radius
+                                        acsc.NONE, # MaxLength
+                                        acsc.NONE, # StarvationMargin
+                                        None,      # Segments (имя массива, если нужно > 50 сегм.)
+                                        acsc.NONE, # ExtLoopType
+                                        acsc.NONE, # MinSegmentLength
+                                        acsc.NONE, # MaxAllowedDeviation
+                                        acsc.NONE, # OutputIndex
+                                        acsc.NONE, # BitNumber
+                                        acsc.NONE, # Polarity
+                                        acsc.NONE, # MotionDelay
+                                        None       # Wait (синхронный вызов планирования)
+                                        )
+        except Exception as e:
+            print(f"Ошибка при запуске движения по окружности (extendedSegmentedMotionV2)")
+        
+        try:
+            '''Добавляем дугу (360 градусов окружнсоть) 😊😊😊😊😊'''
+            acsc.segmentArc2V2(self.stand.hc,
+                               acsc.AMF_VELOCITY,
+                               axesM,
+                               center_points,
+                               circle_angle_rad,
+                               None,           # FinalPoint (для вторичных осей, если есть)
+                               vector_velocity,      #? Using the previous velosity we input
+                               acsc.NONE,      # EndVelocity 
+                               acsc.NONE,      # Time
+                               None,           # Values (для user variables)
+                               None,           # Variables (для user variables)
+                               acsc.NONE,      # Index (для user variables)
+                               None,           # Masks (для user variables)
+                               acsc.NONE,      # ExtLoopType
+                               acsc.NONE,      # MinSegmentLength
+                               acsc.NONE,      # MaxAllowedDeviation
+                               acsc.NONE,      # LciState
+                               None            # Wait (синхронный вызов планирования)
+                               )
+        except Exception as e:
+            print(f"Ошибка при добавлении дуги (acsc.segmentArc2V2)")
+        
+        try:
+            acsc.endSequenceM(self.stand.hc, axesM, None)
+            '''The function informs the controller, that no more points 
+        or segments will be specified for the current multi-axis motion.
+        Эта функция сигнализирует контроллеру: "Все, описание траектории закончено.
+        Больше сегментов не будет.'''
+        except Exception as e:
+            print(f"Ошибка при завершении сегмента (acsc.endSequenceM)")
+            #!ВОЗМОЖНО СТОИТ ПЕРВУЮ ФУНКЦИЮ ЗАПУСТИТЬ ПОСЛЕДНЕЙ!!!!
+        
+        acsc.waitMotionEnd(self.stand.hc, leader, 30000)
+        print('Прибыла в начальную точку')
 
 
 if __name__ == '__main__':
