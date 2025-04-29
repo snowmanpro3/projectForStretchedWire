@@ -568,7 +568,6 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         # Инициализация лога координат
         self.circular_motion_log = {
             'time': [],
-            'theta': [],
             'x_pos': [],
             'y_pos': [],
             'eds':[],
@@ -577,19 +576,17 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         vector_velocity = float(self.circ_speed_input.text())
         radius = float(self.circ_radius_input.text())
 
-        axesM = [0, 1, 2, 3]  # List of axes to move (all) for toPointM
+        axesM = [0, 1]
         leader = axesM[0]
 
-        center_x = self.axes_data[1]["axis_obj"].get_pos()  # Получаем текущую позицию оси 1
         center_y = self.axes_data[0]["axis_obj"].get_pos()  # Получаем текущую позицию оси 0
-        circle_angle_rad = 2*np.pi  # Whole circle
-        center_point = [center_x, center_y]
-        center_points = [center_y, center_x, center_y, center_x]
+        center_x = self.axes_data[1]["axis_obj"].get_pos()  # Получаем текущую позицию оси 1
+        circle_angle_rad = 2*np.pi
+        center_points = [center_y, center_x]
 
         start_x = center_x + radius
         start_y = center_y
-        start_point = [start_x, start_y]
-        start_points = [start_y, start_x, start_y, start_x]
+        start_points = [start_y, start_x]
 
         self.stand.enable_all()  # Включаем все оси перед движением
         acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, axesM, start_points, acsc.SYNCHRONOUS)
@@ -619,7 +616,9 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                                         None       # Wait (синхронный вызов планирования)
                                         )
         except Exception as e:
-            print(f"Ошибка при запуске движения по окружности (extendedSegmentedMotionV2)")
+            print(f"Ошибка при запуске движения по окружности (extendedSegmentedMotionV2): {e}")
+        else:
+            print(f"Функция acsc.extendedSegmentedMotionV2 выполнена без ошибок")
         
         try:
             '''Добавляем дугу (360 градусов окружнсоть) 😊😊😊😊😊'''
@@ -643,7 +642,9 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                                None            # Wait (синхронный вызов планирования)
                                )
         except Exception as e:
-            print(f"Ошибка при добавлении дуги (acsc.segmentArc2V2)")
+            print(f"Ошибка при добавлении дуги (acsc.segmentArc2V2): {e}")
+        else:
+            print(f"Функция acsc.segmentArc2V2 выполнена без ошибок")
         
         try:
             acsc.endSequenceM(self.stand.hc, axesM, None)
@@ -654,6 +655,8 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         except Exception as e:
             print(f"Ошибка при завершении сегмента (acsc.endSequenceM)")
             #!ВОЗМОЖНО СТОИТ ПЕРВУЮ ФУНКЦИЮ ЗАПУСТИТЬ ПОСЛЕДНЕЙ!!!!
+        else:
+            print(f"Функция acsc.endSequenceM выполнена без ошибок")
         
         acsc.waitMotionEnd(self.stand.hc, leader, 30000)
         print('Прибыла в начальную точку')
