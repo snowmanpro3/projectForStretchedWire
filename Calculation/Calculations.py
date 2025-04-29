@@ -126,6 +126,21 @@ def harmonicAnalysis(X1, X2, Y1, Y2, time, eds, save_path=None):
     
     return fig
 
+def testFFI(pos, time, mode):
+
+    df = pd.DataFrame({
+         'pos': pos,
+         'time': time
+    })
+    
+    df.to_csv('testlogs/test_log.csv', index=False)
+    # Создаем столбец mode, где только первая строка = 'X', остальные NaN
+    df['mode'] = ['X'] + [np.nan] * (len(pos) - 1)
+    
+    pos = np.array(pos, dtype='float32')
+    time = np.array(time, dtype='float32')
+
+     
 
 
       

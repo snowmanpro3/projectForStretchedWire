@@ -8,7 +8,7 @@ This script connects to the ACS controller and manages axis positions
 from __future__ import division, print_function
 import acsc_modified as acsc
 import newACS
-from Calculation import Calc_integrals_func as calc #!КАК ИМПОРТИРОВАТЬ
+from Calculation import Calculations as calc #!КАК ИМПОРТИРОВАТЬ
 from Keithley_2182A.keithley import Keithley2182A as ktl
 import time
 from PyQt6 import QtGui
@@ -421,6 +421,11 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         
 
     def start_ffi_motion(self):
+        """Проверяет режим движения и запускает соответствующий метод."""
+        if not self.stand:
+            self.show_error("Контроллер не подключён!")
+            return
+        
         #! МОЖНО СДЕЛАТЬ QDoubleValidator и автоматическую замену запятой на точку
         #Todo Можно попробовать через сегменты тоже, если нужно туда-сюда
         try:
@@ -570,7 +575,6 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             'time': [],
             'x_pos': [],
             'y_pos': [],
-            'eds':[],
         }
         self.start_time = time.time()
         vector_velocity = float(self.circ_speed_input.text())
@@ -661,6 +665,150 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         acsc.waitMotionEnd(self.stand.hc, leader, 30000)
         print('Прибыла в начальную точку')
 
+    def ffi_test(self):
+        """Проверяет режим движения и запускает соответствующий метод."""
+        if not self.stand:
+            self.show_error("Контроллер не подключён!")
+            return
+        
+        try:
+            distance = float(self.ffi_distance_input.text())
+        except ValueError:
+            self.show_error("Ошибка: введите число через точку")
+            self.ffi_distance_input.setText('0.0')
+            distance = 0.0
+        else:
+            print(f"Дистанция успешно введена и устанновлена")
+
+        try:
+            mode = (self.mode_ffi_input.text())
+            if mode and distance != 0:
+                if mode == 'X':
+                    ffi_axes = [0,1]
+                    leader = 0
+                    for axis in ffi_axes:
+                        if not self.axes_data[axis]["state"]:
+                            self.axes_data[axis]['axis_obj'].enable()
+                            self.axes_data[axis]["state"] = True
+                            self.pos_log = self.ffi_motion_log['x_pos']
+                elif mode == 'Y':
+                    ffi_axes = [0,1]
+                    leader = 0
+                    for axis in ffi_axes:
+                        if not self.axes_data[axis]["state"]:
+                            self.axes_data[axis]['axis_obj'].enable()
+                            self.axes_data[axis]["state"] = True
+                            self.pos_log = self.ffi_motion_log['y_pos']
+        except Exception as e:
+            self.show_error("Введите капсом 'X' или 'Y'")
+        else:
+            print(f"Мод успешно выбран")
+
+        try:
+            speed = float(self.speed_ffi_input.text())
+            for axis in ffi_axes:
+                    self.axes_data[axis]['axis_obj'].set_speed(speed)
+        except ValueError:
+            self.show_error("Что-то со скоростью мб")
+        else:
+            print(f"Скорость успешно введена и установлена")
+
+        self.ffi_motion_log = {  # Инициализация лога
+            'time': [],
+            'x_pos': [],
+            'y_pos': [],
+        }
+
+        distances = [-(distance/2), -(distance/2)]
+        try:
+            acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
+        except Exception as e:
+            print(f"Ошибка при запуске синхронного движения: {e}")
+        else:
+            print(f"Функция acsc.toPointM выполнена без ошибок")
+        acsc.waitMotionEnd(self.stand.hc, leader, 20000)
+
+    
+        distances = [distance, distance]
+        acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
+
+        # Writing log data
+        start_time = time.time()
+        poll_interval = 0.05
+        axis = ffi_axes[0]
+        while True:
+            pos = acsc.getFPosition(self.stand.hc, axis)                 # Спрашиваем позицию оси-лидера у контроллера
+            self.pos_log.append(pos)                                     # Добавляем в список координат (X или Y)
+            self.ffi_motion_log['time'].append(time.time() - start_time) # Добавляем в список текущее время с момента начала движения
+
+            motor_state = acsc.getMotorState(self.stand.hc, axis)        # Если ось не движется, то закрываем цикл
+            if motor_state['in position']:  # Тут изменил на ин позишн, как в апдейт позишн
+                self.show_error("Движение успешно завершено")
+                break
+            time.sleep(poll_interval)                                    # Пауза между опросами            
+        
+        if mode == 'X':                                                  # Вспоминаем, в какой плоскости двигались и возвращаем
+            self.ffi_motion_log['x_pos'] = self.pos_log                  # список координат в словарь-ffi_motion_log
+        elif mode == 'Y':
+            self.ffi_motion_log['y_pos'] = self.pos_log
+
+        calc.testFFI(self.pos_log, self.ffi_motion_log['time'], mode)
+
+
+
+
+
+        filename = 'ffi_motion_log.csv'                                  # Сохраняем лог в CSV
+        with open(filename, mode='w', newline='') as file:               # Открываем в режиме записи w-write
+            writer = csv.writer(file)
+            writer.writerow(['time', 'x_pos', 'y_pos', 'eds'])           # Заголовки
+
+            rows = zip(
+                self.ffi_motion_log['time'],
+                self.ffi_motion_log.get('x_pos', []),
+                self.ffi_motion_log.get('y_pos', []),
+                self.ffi_motion_log.get('eds', [])
+            )
+            for row in rows:
+                writer.writerow(row)
+
+        print(f"Лог сохранён в файл: {filename}")
+
+
+        #! ОПИСАНИЕ ПОЛУЧЕНИЯ ГРАФИКА
+        # Todo вынести это в модуль расчётов
+        x1 = self.ffi_motion_log['x_pos']
+        y1 = self.ffi_motion_log['y_pos']
+        x2 = x1[1:] # Удаляем первый элемент   
+        y2 = y1[1:]
+        x1 = x1[:-1]
+        y1 = y1[:-1]
+        time = self.ffi_motion_log['time']
+        time = time[:-1]
+        eds = self.ffi_motion_log['eds'][:-1]
+        eds = [_ ** 0.2 for _ in range(len(time))]
+        if mode == 'X':
+            v1, v2 = x1, x2
+        elif mode == 'Y':
+            v1, v2 = y1, y2
+        fig = calc.demoFirstFieldIntegral(v1, v2, speed, eds)
+            
+        # 1. Создаем буфер для сохранения изображения
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=300)
+        buf.seek(0)
+        
+        # 2. Загружаем изображение в QPixmap
+        pixmap = QtGui.QPixmap()
+        pixmap.loadFromData(buf.getvalue())
+        
+        # 3. Устанавливаем pixmap в QLabel
+        self.plot_pic.setPixmap(pixmap) 
+        
+        # (Опционально) Масштабируем изображение под размер QLabel
+        self.plot_pic.setScaledContents(True)
+
+        pass
 
 if __name__ == '__main__':
     app = QApplication([])
