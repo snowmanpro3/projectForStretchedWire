@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from datetime import datetime
 from scipy.integrate import cumulative_trapezoid # Для интегрирования методом трапеций
 from scipy.fft import fft, fftfreq
 from scipy.signal import get_window  # Добавляем оконную функцию
@@ -126,21 +127,27 @@ def harmonicAnalysis(X1, X2, Y1, Y2, time, eds, save_path=None):
     
     return fig
 
-def testFFI(pos, time, mode):
+def testFFI(log: dict, mode: str):
+    df = pd.DataFrame(log)
 
-    df = pd.DataFrame({
-         'pos': pos,
-         'time': time
-    })
+    x_pos_previous = df['x_pos'].to_numpy()[:-1]
+    time = np.array(df['time'])[1:]
+    x_pos = df['x_pos'].to_numpy()[1:]
+
+    fig, ax = plt.subplots()
+
+    current_time = datetime.now().strftime("%d_%m_%Y_%H_%M_%S")
+    str_current_time = str(current_time)
+    save_path = f"testlogs\\FFItest\\FFIgraph_{str_current_time}.png"
+        
+    ax.plot(time, x_pos)
+    ax.set_xlabel('Время')
+    ax.set_ylabel(f"Координата, {mode}")
+    ax.set_title('Зависимость нужно лечить')
+    ax.grid(which="both", linestyle="--")  # Сетка для удобства
+
+    if save_path:
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"График сохранён как {save_path}")
     
-    df.to_csv('testlogs/test_log.csv', index=False)
-    # Создаем столбец mode, где только первая строка = 'X', остальные NaN
-    df['mode'] = ['X'] + [np.nan] * (len(pos) - 1)
-    
-    pos = np.array(pos, dtype='float32')
-    time = np.array(time, dtype='float32')
-
-     
-
-
-      
+    return fig

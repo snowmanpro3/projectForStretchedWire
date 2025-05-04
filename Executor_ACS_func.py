@@ -566,6 +566,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             pass
 
     def circle_test(self):
+        # TODO добавить запись лога
         if not self.stand:
             self.show_error("Контроллер не подключён!")
             return
@@ -735,13 +736,12 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         # Writing log data
         start_time = time.time()
         poll_interval = 0.05
-        axis = ffi_axes[0]
         while True:
-            pos = acsc.getFPosition(self.stand.hc, axis)                 # Спрашиваем позицию оси-лидера у контроллера
+            pos = acsc.getFPosition(self.stand.hc, leader)                 # Спрашиваем позицию оси-лидера у контроллера
             self.pos_log.append(pos)                                     # Добавляем в список координат (X или Y)
             self.ffi_motion_log['time'].append(time.time() - start_time) # Добавляем в список текущее время с момента начала движения
 
-            motor_state = acsc.getMotorState(self.stand.hc, axis)        # Если ось не движется, то закрываем цикл
+            motor_state = acsc.getMotorState(self.stand.hc, leader)        # Если ось не движется, то закрываем цикл
             if motor_state['in position']:  # Тут изменил на ин позишн, как в апдейт позишн
                 self.show_error("Движение успешно завершено")
                 break
