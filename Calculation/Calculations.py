@@ -128,7 +128,13 @@ def harmonicAnalysis(X1, X2, Y1, Y2, time, eds, save_path=None):
     return fig
 
 def testFFI(log: dict, mode: str):
+    current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    str_current_time = str(current_time)
+    
     df = pd.DataFrame(log)
+    df.index.name = 'Index'
+    save_path_csv = f"testlogs\\FFItest\\FFIlog_{str_current_time}.csv"
+    df.to_csv(save_path_csv, sep = ',')
 
     x_pos_previous = df['x_pos'].to_numpy()[:-1]
     time = np.array(df['time'])[1:]
@@ -136,14 +142,12 @@ def testFFI(log: dict, mode: str):
 
     fig, ax = plt.subplots()
 
-    current_time = datetime.now().strftime("%d_%m_%Y_%H_%M_%S")
-    str_current_time = str(current_time)
     save_path = f"testlogs\\FFItest\\FFIgraph_{str_current_time}.png"
         
     ax.plot(time, x_pos)
     ax.set_xlabel('Время')
     ax.set_ylabel(f"Координата, {mode}")
-    ax.set_title('Зависимость нужно лечить')
+    ax.set_title('Зависимость')
     ax.grid(which="both", linestyle="--")  # Сетка для удобства
 
     if save_path:
