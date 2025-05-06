@@ -407,7 +407,9 @@ def smoothPointToPointMotion(hcomm, flags, axes, points, vel, wait=SYNCHRONOUS):
 #!!!ДОБАВИТЬ ОБРАБОТКУ ВХОДНЫХ АРГУМЕНТОВ (double, tuple и т.д.)
 def waitMotionEnd(hcomm, axis, timeout):
     """Waits for motion to end."""
-    acs.acsc_WaitMotionEnd(hcomm, axis, double(timeout))  # Timeout - ms
+    axis = int32(axis)
+    timeout = int32(timeout)
+    acs.acsc_WaitMotionEnd(hcomm, axis, timeout)  # Timeout - ms
 
 
 # Add type definitions for the segmented motion functions

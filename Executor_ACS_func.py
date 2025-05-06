@@ -19,6 +19,7 @@ from PyQt6.QtCore import Qt, QSize, QTimer
 from GUI_for_controller_with_tabs2 import Ui_MainWindow
 import numpy as np
 import csv
+import matplotlib.pyplot as plt
 
 
 class ACSControllerGUI(QMainWindow, Ui_MainWindow):
@@ -64,10 +65,14 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
     def connect_ui_elements(self):                               # Кнопки общего действия: старт, стоп, ресет
         self.connect_button.clicked.connect(self.connect_to_controller)
         self.reset_button.clicked.connect(self.set_default_values)
+        self.zeropos_button.clicked.connect(self.zeropos_axes)
         self.start_choosen_axis_button.clicked.connect(self.startM)
         self.stop_button.clicked.connect(self.stop_all_axes)
         self.stop_button_2.clicked.connect(self.stop_all_axes)
         self.start_mode_motion.clicked.connect(self.check_mode_then_start)
+        self.stop_button_test.clicked.connect(self.stop_all_axes)
+        self.start_mode_motion_test.clicked.connect(self.check_mode_then_start_test)
+        
 
         for i in range(4):
             '''Перед connect стоит т.н. сигнал, а сам connect связывает сигнал с обработчиком'''
@@ -90,6 +95,10 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             axis["deceleration_input"].setText("100")
             axis["kill_deceleration_input"].setText("166.67")
             axis["jerk_input"].setText("133.33")
+
+    def zeropos_axes(self):
+        
+        pass
 
     def connect_to_controller(self):
         """Подключается к контроллеру. Инициализирует оси как объекты в ключе 'axis_obj """
@@ -578,8 +587,8 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             'y_pos': [],
         }
         self.start_time = time.time()
-        vector_velocity = float(self.circ_speed_input.text())
-        radius = float(self.circ_radius_input.text())
+        vector_velocity = float(self.circ_speed_input_test.text())
+        radius = float(self.circ_radius_input_test.text())
 
         axesM = [0, 1]
         leader = axesM[0]
@@ -673,16 +682,16 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             return
         
         try:
-            distance = float(self.ffi_distance_input.text())
+            distance = float(self.ffi_distance_input_test.text())
         except ValueError:
             self.show_error("Ошибка: введите число через точку")
-            self.ffi_distance_input.setText('0.0')
+            self.ffi_distance_input_test.setText('0.0')
             distance = 0.0
         else:
             print(f"Дистанция успешно введена и устанновлена")
 
         try:
-            mode = (self.mode_ffi_input.text())
+            mode = (self.ffi_mode_input_test.text())
             if mode and distance != 0:
                 if mode == 'X':
                     ffi_axes = [0,1]
@@ -691,7 +700,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                         if not self.axes_data[axis]["state"]:
                             self.axes_data[axis]['axis_obj'].enable()
                             self.axes_data[axis]["state"] = True
-                            self.pos_log = self.ffi_motion_log['x_pos']
+                            # self.pos_log = self.ffi_motion_log['x_pos']
                 elif mode == 'Y':
                     ffi_axes = [0,1]
                     leader = 0
@@ -699,14 +708,14 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                         if not self.axes_data[axis]["state"]:
                             self.axes_data[axis]['axis_obj'].enable()
                             self.axes_data[axis]["state"] = True
-                            self.pos_log = self.ffi_motion_log['y_pos']
+                            # self.pos_log = self.ffi_motion_log['y_pos']
         except Exception as e:
             self.show_error("Введите капсом 'X' или 'Y'")
         else:
             print(f"Мод успешно выбран")
 
         try:
-            speed = float(self.speed_ffi_input.text())
+            speed = float(self.ffi_speed_input_test.text())
             for axis in ffi_axes:
                     self.axes_data[axis]['axis_obj'].set_speed(speed)
         except ValueError:
@@ -727,18 +736,30 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             print(f"Ошибка при запуске синхронного движения: {e}")
         else:
             print(f"Функция acsc.toPointM выполнена без ошибок")
-        acsc.waitMotionEnd(self.stand.hc, leader, 20000)
+        time.sleep(0.2)
 
-    
-        distances = [distance, distance]
-        acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
+        try:
+            acsc.waitMotionEnd(self.stand.hc, leader, 20000)
+        except Exception as e:
+            print(f"Ошибка при ожидании окончания первого движения: {e}")
+        else:
+            print(f"Нить выведена на край")
+
+        try:
+            distances = [distance, distance]
+            acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
+        except Exception as e:
+            print(f"Ошибка при запуске основного синхронного движения: {e}")
+        else:
+            print(f"Измерение FFI успешно запущено, идёт измерение...")
 
         # Writing log data
         start_time = time.time()
         poll_interval = 0.05
+        pos_log = []
         while True:
             pos = acsc.getFPosition(self.stand.hc, leader)                 # Спрашиваем позицию оси-лидера у контроллера
-            self.pos_log.append(pos)                                     # Добавляем в список координат (X или Y)
+            pos_log.append(pos)                                     # Добавляем в список координат (X или Y)
             self.ffi_motion_log['time'].append(time.time() - start_time) # Добавляем в список текущее время с момента начала движения
 
             motor_state = acsc.getMotorState(self.stand.hc, leader)        # Если ось не движется, то закрываем цикл
@@ -748,67 +769,60 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             time.sleep(poll_interval)                                    # Пауза между опросами            
         
         if mode == 'X':                                                  # Вспоминаем, в какой плоскости двигались и возвращаем
-            self.ffi_motion_log['x_pos'] = self.pos_log                  # список координат в словарь-ffi_motion_log
+            self.ffi_motion_log['x_pos'] = pos_log                  # список координат в словарь-ffi_motion_log
+            self.ffi_motion_log['y_pos'] = [0] * len(self.ffi_motion_log['time'])
+            print(len(self.ffi_motion_log['x_pos']),
+                        len(self.ffi_motion_log['time']))
         elif mode == 'Y':
-            self.ffi_motion_log['y_pos'] = self.pos_log
-
-        calc.testFFI(self.pos_log, self.ffi_motion_log['time'], mode)
-
-
-
+            self.ffi_motion_log['y_pos'] = pos_log
+            self.ffi_motion_log['x_pos'] = [0] * len(self.ffi_motion_log['time'])
+            print(len(self.ffi_motion_log['y_pos']),
+                        len(self.ffi_motion_log['time']))
 
 
-        filename = 'ffi_motion_log.csv'                                  # Сохраняем лог в CSV
-        with open(filename, mode='w', newline='') as file:               # Открываем в режиме записи w-write
-            writer = csv.writer(file)
-            writer.writerow(['time', 'x_pos', 'y_pos', 'eds'])           # Заголовки
+        fig = calc.testFFI(self.ffi_motion_log, mode)
 
-            rows = zip(
-                self.ffi_motion_log['time'],
-                self.ffi_motion_log.get('x_pos', []),
-                self.ffi_motion_log.get('y_pos', []),
-                self.ffi_motion_log.get('eds', [])
-            )
-            for row in rows:
-                writer.writerow(row)
+        try:
+            # 1. Создаем буфер в памяти
+            buf = io.BytesIO()
+            # 2. Сохраняем фигуру в буфер в формате PNG
+            #    dpi можно подобрать для нужного размера/качества на экране (напр. 96)
+            fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+            buf.seek(0) # Перемещаем указатель в начало буфера
 
-        print(f"Лог сохранён в файл: {filename}")
+            # 3. Загружаем данные из буфера в QPixmap
+            pixmap = QtGui.QPixmap()
+            pixmap.loadFromData(buf.getvalue())
+            buf.close() # Закрываем буфер
 
+            # !!! ВАЖНО: Закрываем фигуру Matplotlib после использования, чтобы освободить память !!!
+            plt.close(fig)
 
-        #! ОПИСАНИЕ ПОЛУЧЕНИЯ ГРАФИКА
-        # Todo вынести это в модуль расчётов
-        x1 = self.ffi_motion_log['x_pos']
-        y1 = self.ffi_motion_log['y_pos']
-        x2 = x1[1:] # Удаляем первый элемент   
-        y2 = y1[1:]
-        x1 = x1[:-1]
-        y1 = y1[:-1]
-        time = self.ffi_motion_log['time']
-        time = time[:-1]
-        eds = self.ffi_motion_log['eds'][:-1]
-        eds = [_ ** 0.2 for _ in range(len(time))]
-        if mode == 'X':
-            v1, v2 = x1, x2
-        elif mode == 'Y':
-            v1, v2 = y1, y2
-        fig = calc.demoFirstFieldIntegral(v1, v2, speed, eds)
-            
-        # 1. Создаем буфер для сохранения изображения
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=300)
-        buf.seek(0)
+            # 4. Устанавливаем QPixmap в ваш QLabel
+            self.plot_pic_test.setPixmap(pixmap)
+            # (Опционально) Масштабируем изображение под размер QLabel
+            self.plot_pic_test.setScaledContents(True)
+            print("График отображен в QLabel.")
+        except Exception as e:
+            self.show_error(f"Неизвестная ошибка в calc.testFFI или отображении графика: {e}")
+            if fig: plt.close(fig) # Закрыть фигуру и при других ошибках
+
+    def check_mode_then_start_test(self):
+        """Проверяет режим движения и запускает соответствующий метод."""
+        if not self.stand:
+            self.show_error("Контроллер не подключён!")
+            return
         
-        # 2. Загружаем изображение в QPixmap
-        pixmap = QtGui.QPixmap()
-        pixmap.loadFromData(buf.getvalue())
-        
-        # 3. Устанавливаем pixmap в QLabel
-        self.plot_pic.setPixmap(pixmap) 
-        
-        # (Опционально) Масштабируем изображение под размер QLabel
-        self.plot_pic.setScaledContents(True)
+        selected_mode = self.check_mode_test.currentText()
+        print(f"Нажата кнопка 'Старт', выбран режим: {selected_mode}")
 
-        pass
+        if selected_mode == "По окружности":
+            self.circle_test()
+        elif selected_mode == "Первый магнитный интеграл":
+            self.ffi_test()
+        elif selected_mode == "Второй магнитный интеграл":  #Todo добавить возврат в ноль мб
+            # self.start_homing_motion() ТУТ ДОБАВИТЬ ВТОРОЙ ИНТЕГРАЛ
+            pass
 
 if __name__ == '__main__':
     app = QApplication([])
