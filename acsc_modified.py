@@ -17,6 +17,7 @@ if platform.architecture()[0] == "64bit":
     acs = ctypes.windll.LoadLibrary('ACSCL_x64.dll')
 
 int32 = ctypes.c_long
+int64 = ctypes.c_int64
 uInt32 = ctypes.c_ulong
 uInt64 = ctypes.c_ulonglong
 double = ctypes.c_double
@@ -411,33 +412,9 @@ def waitMotionEnd(hcomm, axis, timeout):
     timeout = int32(timeout)
     acs.acsc_WaitMotionEnd(hcomm, axis, timeout)  # Timeout - ms
 
+def double_pointer(val):
+    return ctypes.byref(ctypes.c_double(val)) if val is not None else ctypes.POINTER(ctypes.c_double)
 
-# Add type definitions for the segmented motion functions
-acs.acsc_ExtendedSegmentedMotionV2.restype = ctypes.c_int
-acs.acsc_ExtendedSegmentedMotionV2.argtypes = [
-    ctypes.c_int,                     # hcomm
-    ctypes.c_int,                     # flags
-    ctypes.POINTER(ctypes.c_int),     # axes
-    ctypes.POINTER(ctypes.c_double),  # point
-    ctypes.POINTER(ctypes.c_double),  # vel
-    ctypes.POINTER(ctypes.c_double),  # endVel
-    ctypes.POINTER(ctypes.c_double),  # juncVel
-    ctypes.POINTER(ctypes.c_double),  # angle
-    ctypes.POINTER(ctypes.c_double),  # curveVel
-    ctypes.POINTER(ctypes.c_double),  # deviation
-    ctypes.POINTER(ctypes.c_double),  # radius
-    ctypes.POINTER(ctypes.c_double),  # maxLength
-    ctypes.POINTER(ctypes.c_double),  # starvMargin
-    ctypes.POINTER(ctypes.c_double),  # segments
-    ctypes.POINTER(ctypes.c_double),  # extLoopType
-    ctypes.POINTER(ctypes.c_double),  # minSegmentLength
-    ctypes.POINTER(ctypes.c_double),  # maxAllowedDeviation
-    ctypes.POINTER(ctypes.c_double),  # outputIndex
-    ctypes.POINTER(ctypes.c_double),  # bitNumber
-    ctypes.POINTER(ctypes.c_double),  # polarity
-    ctypes.POINTER(ctypes.c_double),  # motionDelay
-    ctypes.c_int                      # wait
-]
 
 def extendedSegmentedMotionV2(hcomm,
                               flags,
@@ -468,67 +445,32 @@ def extendedSegmentedMotionV2(hcomm,
 
     result = acs.acsc_ExtendedSegmentedMotionV2(
         hcomm,
-        int(flags),
+        flags,
         axes_c,
         point_c,
-        byref(double(vel)),
-        byref(double(endVel)),
-        byref(double(juncVel)),
-        byref(double(angle)),
-        byref(double(curveVel)),
-        byref(double(deviation)),
-        byref(double(radius)),
-        byref(double(maxLength)),
-        byref(double(starvMargin)),
-        byref(double(segments)),
-        byref(double(extLoopType)),
-        byref(double(minSegmentLength)),
-        byref(double(maxAllowedDeviation)),
-        byref(double(outputIndex)),
-        byref(double(bitNumber)),
-        byref(double(polarity)),
-        byref(double(motionDelay)),
-        wait if wait is not None else SYNCHRONOUS
+        ctypes.byref(double(vel)),
+        ctypes.byref(double(endVel)),
+        ctypes.byref(double(juncVel)),
+        ctypes.byref(double(angle)),
+        ctypes.byref(double(curveVel)),
+        ctypes.byref(double(deviation)),
+        ctypes.byref(double(radius)),
+        ctypes.byref(double(maxLength)),
+        ctypes.byref(double(starvMargin)),
+        double_pointer(segments),  #! Тут чар но почему-то работает с POINTER
+        ctypes.byref(int64(extLoopType)),
+        double_pointer(minSegmentLength),
+        double_pointer(maxAllowedDeviation),
+        ctypes.byref(int64(outputIndex)),
+        ctypes.byref(int64(bitNumber)),
+        ctypes.byref(int64(polarity)),
+        double_pointer(motionDelay),
+        wait=SYNCHRONOUS
     )
 
     if result == 0:
         raise RuntimeError("acsc_ExtendedSegmentedMotionV2 failed")
     return True
-
-
-    # points = double*len(axes)
-    # axes_array = ctypes.c_int*(len(axes) + 1)
-    # points_c = points()
-    # axes_c = axes_array()
-    # for n in range(len(axes)):
-    #     points_c[n] = point[n]
-    #     axes_c[n] = axes[n]
-    # axes_c[-1] = -1
-    # vel = double(vel) # double - float
-    # #* etc.
-    # acs.acsc_ExtendedSegmentedMotionV2(hcomm,
-    #                                    flags,
-    #                                    axes_c,
-    #                                    points_c,
-    #                                    vel,
-    #                                    endVel,
-    #                                    juncVel,
-    #                                    angle,
-    #                                    curveVel,
-    #                                    deviation,
-    #                                    radius,
-    #                                    maxLength,
-    #                                    starvMargin,
-    #                                    segments,
-    #                                    extLoopType,
-    #                                    minSegmentLength,
-    #                                    maxAllowedDeviation,
-    #                                    outputIndex,
-    #                                    bitNumber,
-    #                                    polarity,
-    #                                    motionDelay,
-    #                                    wait
-    #                                    )
 
 
 #!!!ДОБАВИТЬ ОБРАБОТКУ ВХОДНЫХ АРГУМЕНТОВ (double, tuple и т.д.)
@@ -550,35 +492,36 @@ def segmentArc2V2(hcomm,
                   maxAllowedDeviation,
                   lciState,
                   wait=SYNCHRONOUS):
-    center = double*len(axes)
-    axes_array = ctypes.c_int*(len(axes) + 1)
-    center_c = center()
-    axes_c = axes_array()
-    for n in range(len(axes)):
-        center_c[n] = center[n]
-        axes_c[n] = axes[n]
-    axes_c[-1] = -1
-    vel = double(vel) # double - float
-    angle = double(angle)
-    #* etc.
-    acs.acsc_SegmentArc2V2(hcomm,
+   
+    n = len(axes)
+    axes_c = (ctypes.c_int * (n + 1))(*axes, -1)
+    center_c = (ctypes.c_double * len(center))(*center)
+    angle_c = ctypes.c_double(angle)
+    finalPoints_c = (ctypes.c_double * len(finalPoints))(*finalPoints) if finalPoints else None
+
+    
+    result = acs.acsc_SegmentArc2V2(hcomm,
                            flags,
                            axes_c,
                            center_c,
-                           angle,
-                           finalPoints,
-                           vel,
-                           endVel,
-                           time,
-                           values,
-                           variables,
-                           index,
-                           masks,
-                           extLoopType,
-                           minSegmentLength,
-                           maxAllowedDeviation,
-                           lciState,
-                           wait)
+                           angle_c,
+                           finalPoints_c,
+                           ctypes.byref(double(vel)),
+                           ctypes.byref(double(endVel)),
+                           ctypes.byref(double(time)),
+                           ctypes.c_char_p(values.encode()) if values else None,
+                           ctypes.c_char_p(variables.encode()) if variables else None,
+                           ctypes.byref(int64(index)),
+                           ctypes.c_char_p(masks.encode()) if masks else None,
+                           ctypes.byref(int64(extLoopType)),
+                           ctypes.byref(double(minSegmentLength)),
+                           ctypes.byref(double(maxAllowedDeviation)),
+                           ctypes.byref(int64(lciState)),
+                           wait=SYNCHRONOUS)
+    
+    if result == 0:
+        raise RuntimeError("acsc_ExtendedSegmentedMotionV2 failed")
+    return True
 
 def endSequenceM(hcomm, axes, wait=SYNCHRONOUS):
     axes_array = ctypes.c_int*(len(axes) + 1)
@@ -587,17 +530,6 @@ def endSequenceM(hcomm, axes, wait=SYNCHRONOUS):
         axes_c[n] = axes[n]
     axes_c[-1] = -1
     acs.acsc_EndSequenceM(hcomm, axes_c, wait)
-
-# def getAxisState(hcomm, axis, wait=SYNCHRONOUS):  #Провекра вкл или выкл двигатель на данной оси
-#     """Checks state of axis."""
-#     state = int32()
-#     a = acs.acsc_GetAxisState(hcomm, axis, byref(state), wait)
-#     state = state.value
-#     mst = {"enabled" : hex(state)[-1] == "1",
-#            "in position" : hex(state)[-2] == "1",
-#            "moving" : hex(state)[-2] == "2",
-#            "accelerating" : hex(state)[-2] == "4"}
-#     return mst
 
 
 if __name__ == "__main__":  #Этот код выполнится только при запуске файла напрямую

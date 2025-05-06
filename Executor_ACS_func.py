@@ -20,6 +20,7 @@ from GUI_for_controller_with_tabs2 import Ui_MainWindow
 import numpy as np
 import csv
 import matplotlib.pyplot as plt
+import traceback
 
 
 class ACSControllerGUI(QMainWindow, Ui_MainWindow):
@@ -97,7 +98,10 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             axis["jerk_input"].setText("133.33")
 
     def zeropos_axes(self):
-        
+        self.axes_data[0]["axis_obj"].set_pos(0)
+        self.axes_data[1]["axis_obj"].set_pos(0)
+        self.axes_data[2]["axis_obj"].set_pos(0)
+        self.axes_data[3]["axis_obj"].set_pos(0)
         pass
 
     def connect_to_controller(self):
@@ -575,7 +579,6 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             pass
 
     def circle_test(self):
-        # TODO добавить запись лога
         if not self.stand:
             self.show_error("Контроллер не подключён!")
             return
@@ -592,7 +595,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
 
         axesM = [0, 1]
         leader = axesM[0]
-
+        
         center_y = self.axes_data[0]["axis_obj"].get_pos()  # Получаем текущую позицию оси 0
         center_x = self.axes_data[1]["axis_obj"].get_pos()  # Получаем текущую позицию оси 1
         circle_angle_rad = 2*np.pi
@@ -604,7 +607,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
 
         self.stand.enable_all()  # Включаем все оси перед движением
         acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, axesM, start_points, acsc.SYNCHRONOUS)
-        acsc.waitMotionEnd(self.stand.hc, leader, 30000)
+        acsc.waitMotionEnd(self.stand.hc, leader, 15000)
         print('Прибыла в начальную точку')
 
         try:
@@ -619,7 +622,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                                         radius, # Radius
                                         acsc.NONE, # MaxLength
                                         acsc.NONE, # StarvationMargin
-                                        None,      # Segments (имя массива, если нужно > 50 сегм.)
+                                        acsc.NONE,      # Segments (имя массива, если нужно > 50 сегм.)
                                         acsc.NONE, # ExtLoopType
                                         acsc.NONE, # MinSegmentLength
                                         acsc.NONE, # MaxAllowedDeviation
@@ -631,6 +634,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                                         )
         except Exception as e:
             print(f"Ошибка при запуске движения по окружности (extendedSegmentedMotionV2): {e}")
+            traceback.print_exc()
         else:
             print(f"Функция acsc.extendedSegmentedMotionV2 выполнена без ошибок")
         
@@ -657,6 +661,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                                )
         except Exception as e:
             print(f"Ошибка при добавлении дуги (acsc.segmentArc2V2): {e}")
+            traceback.print_exc()
         else:
             print(f"Функция acsc.segmentArc2V2 выполнена без ошибок")
         
