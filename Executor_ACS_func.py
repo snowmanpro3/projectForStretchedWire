@@ -610,6 +610,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         acsc.waitMotionEnd(self.stand.hc, leader, 15000)
         print('Прибыла в начальную точку')
 
+        #!Радиус самой дуги задается через ее геометрические параметры (центр, угол/конечная точка) в команде segmentArc....
         try:
             acsc.extendedSegmentedMotionV2(self.stand.hc, acsc.AMF_VELOCITY,
                                         axesM, start_points,
@@ -619,7 +620,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                                         acsc.NONE, # Angle
                                         acsc.NONE, # CurveVelocity
                                         acsc.NONE, # Deviation
-                                        radius, # Radius
+                                        acsc.NONE, # Radius только с флагом ACSC_AMF_CORNERRADIUS
                                         acsc.NONE, # MaxLength
                                         acsc.NONE, # StarvationMargin
                                         acsc.NONE,      # Segments (имя массива, если нужно > 50 сегм.)
@@ -638,15 +639,21 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         else:
             print(f"Функция acsc.extendedSegmentedMotionV2 выполнена без ошибок")
         
+        #!!!⬇️⬇️⬇️⬇️
+        '''
+        Ты все еще передаешь флаг acsc.AMF_VELOCITY и значение vector_velocity в функцию acsc.segmentArc2V2. 
+        Cкорость для сегмента должна наследоваться от той, что задана в extendedSegmentedMotionV2. 
+        Нужно передать 0 во флаги и acsc.NONE (-1) в скорость
+        '''
         try:
             '''Добавляем дугу (360 градусов окружнсоть) 😊😊😊😊😊'''
             acsc.segmentArc2V2(self.stand.hc,
-                               acsc.AMF_VELOCITY,
+                               0,
                                axesM,
                                center_points,
                                circle_angle_rad,
                                None,           # FinalPoint (для вторичных осей, если есть)
-                               vector_velocity,      #? Using the previous velosity we input
+                               acsc.NONE,      #? Using the previous velosity we input
                                acsc.NONE,      # EndVelocity 
                                acsc.NONE,      # Time
                                None,           # Values (для user variables)
