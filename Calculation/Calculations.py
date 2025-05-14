@@ -132,9 +132,11 @@ def testFFI(log: dict, mode: str):
     str_current_time = str(current_time)
     
     df = pd.DataFrame(log)
-    df.index.name = 'Index'
-    save_path_csv = f"testlogs\\FFItest\\FFIlog_{str_current_time}.csv"
-    df.to_csv(save_path_csv, sep = ',')
+    #! Если нужно удалить колонку ЭДС раскоментируй след строку
+    # df.drop(columns='eds')
+    df.index.name = 'Index'  # Присваю имя index индексам (создаются автоматически, можно даже отключить)
+    save_path_csv = f"testlogs\\FFItest\\FFIlog_{str_current_time}.csv"  # Путь сохранения в папку FFItest
+    df.to_csv(save_path_csv, sep = ',') 
 
     x_pos_previous = df['x_pos'].to_numpy()[:-1]
     time = np.array(df['time'])[1:]
@@ -155,3 +157,9 @@ def testFFI(log: dict, mode: str):
             print(f"График сохранён как {save_path}")
     
     return fig
+
+
+def testCircle(log: dict):
+    
+     
+    pass

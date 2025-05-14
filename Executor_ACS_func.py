@@ -21,6 +21,7 @@ import numpy as np
 import csv
 import matplotlib.pyplot as plt
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 
 
 class ACSControllerGUI(QMainWindow, Ui_MainWindow):
@@ -220,8 +221,8 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
 
         data = self.axes_data[axis]
         try:
-            distance = float(text) # Передаём значение в контроллер
-            data["move_distance"] = distance # !Chek if it works
+            distance = float(text)
+            data["move_distance"] = distance
         except ValueError:
             self.show_error("Некорректный ввод перемещения")
 
@@ -245,17 +246,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                 start_time = time.time()
                 poll_interval = 0.05
                 if not self.pos_timer.isActive():   # Запускаем таймер обновления позиций
-                    self.pos_timer.start()
-                # while True:
-                #     pos = acsc.getFPosition(self.stand.hc, axis)
-                #     self.oneAxisLog['pos'].append(pos)
-                #     self.oneAxisLog['time'].append(time.time() - start_time)
-
-                #     motor_state = acsc.getMotorState(self.stand.hc, axis)        # Если ось не движется, то закрываем цикл
-                #     if not motor_state['moving']:
-                #         self.show_error("Движение успешно завершено")
-                #         break
-                #     time.sleep(poll_interval)  
+                    self.pos_timer.start() 
             except Exception as e:
                 self.show_error(f"Ошибка при запуске движения оси {axis}: {e}")
         else:
@@ -310,25 +301,81 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         """Показывает сообщение об ошибке."""
         QMessageBox.critical(self, "Ошибка", message)
 
+#!!Just a try
+    def _update_single_position(self, i):
+        data = self.axes_data[i]
+        try:
+            current_pos = data['axis_obj'].get_pos()
+            axis_state = acsc.getAxisState(self.stand.hc, i)
+            mot_state = acsc.getMotorState(self.stand.hc, i)
+            
+            return {
+                "index": i,
+                "pos": current_pos,
+                "axis_moving": axis_state['moving'],
+                "in_pos": mot_state['in position'],
+            }
+        except Exception as e:
+            return {"index": i, "error": str(e)}
+    
+    
     def update_positions(self):
-        data = self.axes_data
-        for i in self.selected_axes:
-            try:
-                current_pos = data[i]['axis_obj'].get_pos()
-                data[i]["pos_label"].setText(f"Текущая позиция:  {current_pos:.4f}")
-                axis_state = acsc.getAxisState(self.stand.hc, i)
-                mot_state = acsc.getMotorState(self.stand.hc, i)
-                data[i]["is_moving_label"].setText(f"В движении    {axis_state['moving']}")
-                data[i]["is_moving_indicator"].setStyleSheet("background-color:rgb(0, 128, 0)")
-                data[i]['is_in_pos_label'].setText(f"На месте    {mot_state['in position']}")
-                if mot_state['in position']:
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # Запуск по потоку для каждой оси
+            futures = [executor.submit(self._update_single_axis, i) for i in self.selected_axes]
+            
+            #? Обрабатываем результаты по мере завершения
+            for future in futures:
+                result = future.result()
+                i = result["index"]
+                
+                # Обновление GUI (этот код выполняется в главном потоке!)
+                data = self.axes_data[i]
+                data["pos_label"].setText(f"Текущая позиция: {result['pos']:.4f}")
+                data["is_moving_label"].setText(f"В движении:    {result['axis_moving']}")
+                data["is_in_pos_label"].setText(f"На месте:    {result['in_pos']}")
+                
+                # Индикаторы
+                moving_color = "rgb(255, 0, 0)" if result["in_pos"] else "rgb(0, 128, 0)"
+                in_pos_color = "rgb(0, 128, 0)" if result["in_pos"] else "rgb(255, 0, 0)"
+                
+                data["is_moving_indicator"].setStyleSheet(f"background-color: {moving_color}")
+                data["is_in_pos_indicator"].setStyleSheet(f"background-color: {in_pos_color}")
+                
+                # Остановка таймера, если все оси на месте
+                if result["mot_in_pos"]:
                     self.pos_timer.stop()
-                    data[i]["is_moving_indicator"].setStyleSheet("background-color:rgb(255, 0, 0)")
-                    data[i]["is_in_pos_indicator"].setStyleSheet("background-color:rgb(0, 128, 0)")
-            except Exception as e:
-                print(f"Ошибка при получении позиции оси {i}: {e}")
 
-    #TODO добавить функцию, которая выводит нить на точку на радиусе окружности прямо с магнитной оси
+#!!Just a try
+    # def update_positions(self):
+    #     data = self.axes_data
+    #     for i in self.selected_axes:
+    #         try:
+    #             current_pos = data[i]['axis_obj'].get_pos()
+    #             data[i]["pos_label"].setText(f"Текущая позиция:  {current_pos:.4f}")
+    #             axis_state = acsc.getAxisState(self.stand.hc, i)
+    #             mot_state = acsc.getMotorState(self.stand.hc, i)
+    #             data[i]["is_moving_label"].setText(f"В движении    {axis_state['moving']}")
+    #             data[i]["is_moving_indicator"].setStyleSheet("background-color:rgb(0, 128, 0)")
+    #             data[i]['is_in_pos_label'].setText(f"На месте    {mot_state['in position']}")
+    #             if mot_state['in position']:
+    #                 self.pos_timer.stop()
+    #                 data[i]["is_moving_indicator"].setStyleSheet("background-color:rgb(255, 0, 0)")
+    #                 data[i]["is_in_pos_indicator"].setStyleSheet("background-color:rgb(0, 128, 0)")
+    #         except Exception as e:
+    #             print(f"Ошибка при получении позиции оси {i}: {e}")
+
+
+    def findMagAxis(self):
+        '''
+        Сначала необходимо на странице настроек/управления расположить нить на
+        предополагаемую магнитную ось (на глаз)
+        '''
+        #! x-компонента (СНАЧАЛА довести до ума первый и второй интеграл, т.к. нахождение оси с их помощью)
+        pass
+
+
+
     #TODO добавить провекру на совпадение координат противположных осей???
     def start_circular_motion(self): #! ПОКА ЧТО НАЧИНАЕТ ДВИЖЕНИЕ ИЗ ТОЧКИ ГДЕ СЕЙЧАС НАХОДИТСЯ
         """
@@ -739,23 +786,25 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             'time': [],
             'x_pos': [],
             'y_pos': [],
+            'eds': []
         }
 
         distances = [-(distance/2), -(distance/2)]
         try:
             acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
+            acsc.waitMotionEnd(self.stand.hc, leader, 20000)
         except Exception as e:
             print(f"Ошибка при запуске синхронного движения: {e}")
         else:
-            print(f"Функция acsc.toPointM выполнена без ошибок")
-        time.sleep(0.2)
+            print(f"Функция acsc.toPointM выполнена без ошибок, нить выведена на старт")
+        time.sleep(0.2) #! Чтобы контроллер успел увидеть остановку оси???
 
-        try:
-            acsc.waitMotionEnd(self.stand.hc, leader, 20000)
-        except Exception as e:
-            print(f"Ошибка при ожидании окончания первого движения: {e}")
-        else:
-            print(f"Нить выведена на край")
+        # try:
+        #     acsc.waitMotionEnd(self.stand.hc, leader, 20000)
+        # except Exception as e:
+        #     print(f"Ошибка при ожидании окончания первого движения: {e}")
+        # else:
+        #     print(f"Нить выведена на край")
 
         try:
             distances = [distance, distance]
@@ -769,10 +818,14 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         start_time = time.time()
         poll_interval = 0.05
         pos_log = []
+        #! Сюда вставить подключение к кейтли и запрос ЭДС
+        nano = ktl(resource="GPIB0::7::INSTR", mode='meas')              # Создаём экземпляр класса Keithley2182A
         while True:
             pos = acsc.getFPosition(self.stand.hc, leader)                 # Спрашиваем позицию оси-лидера у контроллера
+            eds = nano.get_voltage()                                # Получем ЭДС с keithley
             pos_log.append(pos)                                     # Добавляем в список координат (X или Y)
             self.ffi_motion_log['time'].append(time.time() - start_time) # Добавляем в список текущее время с момента начала движения
+            self.ffi_motion_log['eds'].append(eds)
 
             motor_state = acsc.getMotorState(self.stand.hc, leader)        # Если ось не движется, то закрываем цикл
             if motor_state['in position']:  # Тут изменил на ин позишн, как в апдейт позишн
@@ -836,6 +889,64 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             # self.start_homing_motion() ТУТ ДОБАВИТЬ ВТОРОЙ ИНТЕГРАЛ
             pass
 
+    def sfi_test(self, ifFindMagAxis: str=''):
+        if not self.stand:
+            self.show_error("Контроллер не подключён!")
+            return
+        
+        try:
+            distance = float(self.sfi_distance_input_test.text())
+        except ValueError:
+            self.show_error("Ошибка: введите число через точку")
+            self.sfi_distance_input_test.setText('0.0')
+            distance = 0.0
+        else:
+            print(f"Дистанция успешно введена и устанновлена")
+
+        try:
+            speed = float(self.sfi_speed_input_test.text())
+        except ValueError:
+            self.show_error("Ошибка: введите число через точку")
+            self.sfi_speed_input_test.setText('0.0')
+            speed = 0.0
+        else:
+            print('Скорость успешно установлена')
+
+        try:
+            if ifFindMagAxis not in 'XY': #!Обрати внимание и сделай в других измерениях так же
+                mode = (self.sfi_mode_input_test.text())
+            else:
+                mode = ifFindMagAxis #!!!
+            if mode:
+                if mode == 'X':
+                    sfi_axes = [0,1]
+                    leader = 0
+                    for axis in sfi_axes:
+                        if not self.axes_data[axis]["state"]:
+                            self.axes_data[axis]['axis_obj'].enable()
+                            self.axes_data[axis]["state"] = True
+                elif mode == 'Y':
+                    sfi_axes = [0,1]
+                    leader = 0
+                    for axis in sfi_axes:
+                        if not self.axes_data[axis]["state"]:
+                            self.axes_data[axis]['axis_obj'].enable()
+                            self.axes_data[axis]["state"] = True
+        except Exception as e:
+            self.show_error("Введите капсом 'X' или 'Y'")
+        else:
+            print(f"Мод успешно выбран")
+        
+        self.sfi_motion_log = {  # Инициализация лога
+            'time': [],
+            'x_pos': [],
+            'y_pos': [],
+        }
+        
+        
+        
+
+        pass
 if __name__ == '__main__':
     app = QApplication([])
     window = ACSControllerGUI()
