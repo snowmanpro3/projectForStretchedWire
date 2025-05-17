@@ -14,14 +14,52 @@ import time
 from PyQt6 import QtGui
 import io
 from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal, QThread, pyqtSlot
 # Импортируем сгенерированный класс. Команда: pyuic6 GUI_for_controller_with_tabs2.ui -o GUI_for_controller_with_tabs2.py
 from GUI_for_controller_with_tabs2 import Ui_MainWindow
 import numpy as np
 import csv
 import matplotlib.pyplot as plt
 import traceback
-from concurrent.futures import ThreadPoolExecutor
+
+
+class SingleAxisWorker(QThread):
+    """Поток для опроса одной оси с максимальной частотой"""
+    update_signal = pyqtSignal(int, float, bool, bool)  # axis_id, position, moving, in_position
+    error_signal = pyqtSignal(int, str)  # axis_id, error_message
+
+    def __init__(self, stand, axis_id):
+        super().__init__()
+        self.stand = stand      # Ссылка на контроллер ACS
+        self.axis_id = axis_id  # ID оси (0, 1, 2, 3)
+        self.running = False    # Флаг работы потока
+
+    def run(self):
+        """Основной цикл потока"""
+        self.running = True
+        while self.running:
+            try:
+                # Получаем данные оси
+                pos = self.stand.axes[self.axis_id].get_pos()
+                axis_state = acsc.getAxisState(self.stand.hc, self.axis_id)
+                mot_state = acsc.getMotorState(self.stand.hc, self.axis_id)
+                
+                # Отправляем в главный поток
+                self.update_signal.emit(
+                    self.axis_id,
+                    pos,
+                    axis_state['moving'],
+                    mot_state['in position']
+                )
+            except Exception as e:
+                self.error_signal.emit(self.axis_id, str(e))
+            
+            self.msleep(100)  # Пауза 10 мс (можно уменьшить для более частого опроса)
+
+    def stop(self):
+        """Корректная остановка потока"""
+        self.running = False
+        self.wait(500)  # Ожидаем завершения (таймаут 500 мс)
 
 
 class ACSControllerGUI(QMainWindow, Ui_MainWindow):
@@ -29,6 +67,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         super().__init__()
         self.setupUi(self)  # Инициализация интерфейса
         self.stand = None
+        self.axis_workers = {}  # Словарь: {axis_id: worker}
 
         # Создаём словари для 4 осей:
         '''Где есть getattr(self, f"чётотам{i}") - это функция, которая возвращает объект QLineEdit для ввода перемещения оси i.'''
@@ -60,9 +99,9 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         self.connect_ui_elements()                               # Подключаем функции к элементам интерфейса
         self.selected_axes = []
 
-        self.pos_timer = QTimer(self)                            # Таймер для обновления current_pos
-        self.pos_timer.setInterval(125)                          # Обновление позиций каждые 125 мс
-        self.pos_timer.timeout.connect(self.update_positions)    # Вызываем функцию update_positions каждый период таймера
+        # self.pos_timer = QTimer(self)                            # Таймер для обновления current_pos
+        # self.pos_timer.setInterval(250)                          # Обновление позиций каждые 250 мс
+        # self.pos_timer.timeout.connect(self.update_positions)    # Вызываем функцию update_positions каждый период таймера
 
     def connect_ui_elements(self):                               # Кнопки общего действия: старт, стоп, ресет
         self.connect_button.clicked.connect(self.connect_to_controller)
@@ -245,8 +284,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                 data["is_in_pos_indicator"].setStyleSheet("background-color:rgb(255, 0, 0)")
                 start_time = time.time()
                 poll_interval = 0.05
-                if not self.pos_timer.isActive():   # Запускаем таймер обновления позиций
-                    self.pos_timer.start() 
+                self.start_position_updates()
             except Exception as e:
                 self.show_error(f"Ошибка при запуске движения оси {axis}: {e}")
         else:
@@ -276,13 +314,9 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                 data[i]["is_in_pos_indicator"].setStyleSheet("background-color:rgb(255, 0, 0)")
             print('Успешно запущенно движение осей')
             # Запускаем таймер обновления позиций
-            if not self.pos_timer.isActive():
-                self.pos_timer.start()
+            self.start_position_updates()
         except Exception as e:
-            self.show_error(f"Ошибка при запуске синхронного движения: {e}")
-        acsc.waitMotionEnd(self.stand.hc, leader, 30000)
-        if not self.selected_axes:
-            self.show_error("Нет включённых осей для движения!")
+            self.show_error(f"Ошибка при запуске движения: {e}")
 
     def stop_all_axes(self):
         """Останавливает все оси."""
@@ -292,8 +326,6 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
 
         try:
             acsc.killAll(self.stand.hc, acsc.SYNCHRONOUS)
-            if self.pos_timer.isActive():
-                self.pos_timer.stop()
         except Exception as e:
             self.show_error(f"Ошибка при остановке осей: {e}")
 
@@ -301,70 +333,60 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         """Показывает сообщение об ошибке."""
         QMessageBox.critical(self, "Ошибка", message)
 
-#!!Just a try
-    def _update_single_position(self, i):
-        data = self.axes_data[i]
-        try:
-            current_pos = data['axis_obj'].get_pos()
-            axis_state = acsc.getAxisState(self.stand.hc, i)
-            mot_state = acsc.getMotorState(self.stand.hc, i)
-            
-            return {
-                "index": i,
-                "pos": current_pos,
-                "axis_moving": axis_state['moving'],
-                "in_pos": mot_state['in position'],
-            }
-        except Exception as e:
-            return {"index": i, "error": str(e)}
-    
-    
-    def update_positions(self):
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            # Запуск по потоку для каждой оси
-            futures = [executor.submit(self._update_single_axis, i) for i in self.selected_axes]
-            
-            #? Обрабатываем результаты по мере завершения
-            for future in futures:
-                result = future.result()
-                i = result["index"]
-                
-                # Обновление GUI (этот код выполняется в главном потоке!)
-                data = self.axes_data[i]
-                data["pos_label"].setText(f"Текущая позиция: {result['pos']:.4f}")
-                data["is_moving_label"].setText(f"В движении:    {result['axis_moving']}")
-                data["is_in_pos_label"].setText(f"На месте:    {result['in_pos']}")
-                
-                # Индикаторы
-                moving_color = "rgb(255, 0, 0)" if result["in_pos"] else "rgb(0, 128, 0)"
-                in_pos_color = "rgb(0, 128, 0)" if result["in_pos"] else "rgb(255, 0, 0)"
-                
-                data["is_moving_indicator"].setStyleSheet(f"background-color: {moving_color}")
-                data["is_in_pos_indicator"].setStyleSheet(f"background-color: {in_pos_color}")
-                
-                # Остановка таймера, если все оси на месте
-                if result["mot_in_pos"]:
-                    self.pos_timer.stop()
 
-#!!Just a try
-    # def update_positions(self):
-    #     data = self.axes_data
-    #     for i in self.selected_axes:
-    #         try:
-    #             current_pos = data[i]['axis_obj'].get_pos()
-    #             data[i]["pos_label"].setText(f"Текущая позиция:  {current_pos:.4f}")
-    #             axis_state = acsc.getAxisState(self.stand.hc, i)
-    #             mot_state = acsc.getMotorState(self.stand.hc, i)
-    #             data[i]["is_moving_label"].setText(f"В движении    {axis_state['moving']}")
-    #             data[i]["is_moving_indicator"].setStyleSheet("background-color:rgb(0, 128, 0)")
-    #             data[i]['is_in_pos_label'].setText(f"На месте    {mot_state['in position']}")
-    #             if mot_state['in position']:
-    #                 self.pos_timer.stop()
-    #                 data[i]["is_moving_indicator"].setStyleSheet("background-color:rgb(255, 0, 0)")
-    #                 data[i]["is_in_pos_indicator"].setStyleSheet("background-color:rgb(0, 128, 0)")
-    #         except Exception as e:
-    #             print(f"Ошибка при получении позиции оси {i}: {e}")
+    def start_position_updates(self):
+        """Запуск отдельного потока для каждой выбранной оси"""
+        if not self.stand:
+            self.show_error("Контроллер не подключён!")
+            return
 
+        for axis_id in self.selected_axes:
+            # Останавливаем предыдущий поток оси, если был
+            if axis_id in self.axis_workers:
+                self.axis_workers[axis_id].stop()
+
+            # Создаём и настраиваем новый поток
+            worker = SingleAxisWorker(self.stand, axis_id)
+            worker.update_signal.connect(self.handle_axis_update)
+            worker.error_signal.connect(self.handle_axis_error)
+            worker.start()
+            
+            self.axis_workers[axis_id] = worker
+
+    def stop_position_updates(self):
+        """Остановка всех потоков осей"""
+        for axis_id, worker in self.axis_workers.items():
+            worker.stop()
+        self.axis_workers.clear()
+
+    @pyqtSlot(int, float, bool, bool)
+    def handle_axis_update(self, axis_id, pos, moving, in_pos):
+        """Обновление данных оси в GUI (выполняется в главном потоке)"""
+        axis_data = self.axes_data[axis_id]
+        
+        # Обновляем значения
+        axis_data["pos_label"].setText(f"Позиция: {pos:.4f} мм")
+        axis_data["is_moving_label"].setText(f"Движение: {'Да' if moving else 'Нет'}")
+        axis_data["is_in_pos_label"].setText(f"На месте: {'Да' if in_pos else 'Нет'}")
+
+        # Меняем цвет индикаторов
+        moving_color = "rgb(0, 128, 0)" if moving else "rgb(255, 0, 0)"  # Красный/Зелёный
+        in_pos_color = "rgb(0, 128, 0)" if in_pos else "rgb(255, 0, 0)"
+        
+        axis_data["is_moving_indicator"].setStyleSheet(f"background-color: {moving_color}")
+        axis_data["is_in_pos_indicator"].setStyleSheet(f"background-color: {in_pos_color}")
+
+    @pyqtSlot(int, str)
+    def handle_axis_error(self, axis_id, error_msg):
+        """Обработка ошибок оси"""
+        self.show_error(f"Ось {axis_id}: {error_msg}")
+        if axis_id in self.axis_workers:
+            self.axis_workers[axis_id].stop()
+
+    def closeEvent(self, event):
+        """Остановка потоков при закрытии окна"""
+        self.stop_position_updates()
+        super().closeEvent(event)
 
     def findMagAxis(self):
         '''
@@ -816,7 +838,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
 
         # Writing log data
         start_time = time.time()
-        poll_interval = 0.05
+        poll_interval = 0.2
         pos_log = []
         #! Сюда вставить подключение к кейтли и запрос ЭДС
         nano = ktl(resource="GPIB0::7::INSTR", mode='meas')              # Создаём экземпляр класса Keithley2182A
@@ -836,11 +858,13 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         if mode == 'X':                                                  # Вспоминаем, в какой плоскости двигались и возвращаем
             self.ffi_motion_log['x_pos'] = pos_log                  # список координат в словарь-ffi_motion_log
             self.ffi_motion_log['y_pos'] = [0] * len(self.ffi_motion_log['time'])
+            # self.ffi_motion_log['eds'] = [0] * len(self.ffi_motion_log['time'])
             print(len(self.ffi_motion_log['x_pos']),
                         len(self.ffi_motion_log['time']))
         elif mode == 'Y':
             self.ffi_motion_log['y_pos'] = pos_log
             self.ffi_motion_log['x_pos'] = [0] * len(self.ffi_motion_log['time'])
+            # self.ffi_motion_log['eds'] = [0] * len(self.ffi_motion_log['time'])
             print(len(self.ffi_motion_log['y_pos']),
                         len(self.ffi_motion_log['time']))
 

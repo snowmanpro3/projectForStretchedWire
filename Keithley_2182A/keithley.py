@@ -10,17 +10,14 @@ class Keithley2182A:
         self.inst = self.rm.open_resource(resource)
         self.inst.timeout = 2000  # мс
 
-        self.inst.write("*RST")                         # Сброс настроек
-        self.inst.write(":SYST:AZER OFF")               # Выключаем автообнуление (ускоряет)
-        self.inst.write(":VOLT:NPLC 0.01")              # Минимальное время интеграции
-        self.inst.write(":TRIG:SOUR IMM")               # Немедленный триггер
-        self.inst.write(":FORM:ELEM READ")              # Только значение ЭДС
-
-        if self.mode == "fetch":
-            self.inst.write(":TRIG:COUNT INF")          # Бесконечный поток измерений
-            self.inst.write(":INIT:CONT ON")            # Запуск непрерывных измерений
-        else:
-            self.inst.write(":TRIG:COUNT 1")            # Одно измерение на вызов
+        self.inst.write("*RST")
+        self.inst.write("*CLS")
+        self.inst.write(":SYST:AZER OFF")  # Выключить автообнуление (ускоряет)
+        self.inst.write(f":SENS:CHAN 2")
+        self.inst.write(":SENS:FUNC 'VOLT'")
+        self.inst.write(":VOLT:NPLC 0.01")  # Быстрое измерение
+        self.inst.write(":FORM:ELEM READ")  # Только значение
+        self.inst.write(":TRIG:SOUR IMM")   # Немедленный триггер
 
     def get_voltage(self) -> float:
         """
@@ -29,13 +26,9 @@ class Keithley2182A:
         - В режиме 'meas': запускает новое измерение и ждёт результат
         """
         try:
-            if self.mode == "fetch":
-                response = self.inst.query(":FETCH?")
-            else:
-                response = self.inst.query(":MEAS?")
-            return float(response.strip())
+            return float(self.inst.query(":READ?").strip())
         except Exception as e:
-            print(f"[!] Ошибка при получении ЭДС ({self.mode}): {e}")
+            print(f"[!] Ошибка при получении ЭДС: {e}")
             return float("nan")
 
     def close(self):
@@ -82,8 +75,17 @@ class Keithley2182A:
             return False
 
 if __name__ == '__main__':
-    k = Keithley2182A()
-    print(k.keithley.supports_event())  # должно быть True (проверка поддержки SRQ)
+    nano = Keithley2182A(resource="GPIB0::7::INSTR", mode='meas')
+    # print(k.keithley.supports_event())  # должно быть True (проверка поддержки SRQ)
+    start_time = time.time()
+    poll_interval = 0.2
+    pos_log = []
+    N = 0
+    while N < 15:
+        eds = nano.get_voltage()                                # Получем ЭДС с keithley
+        print(eds, time.time() - start_time)
+        N += 1
+        time.sleep(poll_interval)                                    # Пауза между опросами
 
 
 

@@ -130,17 +130,18 @@ def harmonicAnalysis(X1, X2, Y1, Y2, time, eds, save_path=None):
 def testFFI(log: dict, mode: str):
     current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     str_current_time = str(current_time)
+    save_path_csv = f"testlogs\\FFItest\\FFIlog_{str_current_time}.csv"  # Путь сохранения в папку FFItest
     
     df = pd.DataFrame(log)
     #! Если нужно удалить колонку ЭДС раскоментируй след строку
     # df.drop(columns='eds')
     df.index.name = 'Index'  # Присваю имя index индексам (создаются автоматически, можно даже отключить)
-    save_path_csv = f"testlogs\\FFItest\\FFIlog_{str_current_time}.csv"  # Путь сохранения в папку FFItest
     df.to_csv(save_path_csv, sep = ',') 
 
     x_pos_previous = df['x_pos'].to_numpy()[:-1]
     time = np.array(df['time'])[1:]
     x_pos = df['x_pos'].to_numpy()[1:]
+    print(len(time), len(x_pos))
 
     fig, ax = plt.subplots()
 
