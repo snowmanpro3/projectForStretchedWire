@@ -907,9 +907,9 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             plt.close(fig)
 
             # 4. Устанавливаем QPixmap в ваш QLabel
-            self.plot_pic_test.setPixmap(pixmap)
+            self.plot_pic.setPixmap(pixmap)
             # (Опционально) Масштабируем изображение под размер QLabel
-            self.plot_pic_test.setScaledContents(True)
+            self.plot_pic.setScaledContents(True)
             print("График отображен в QLabel.")
         except Exception as e:
             self.show_error(f"Неизвестная ошибка в calc.testFFI или отображении графика: {e}")
