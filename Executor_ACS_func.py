@@ -624,20 +624,30 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         
         fig = calc.firstFieldIntegral(self.ffi_motion_log, mode)
             
-        # 1. Создаем буфер для сохранения изображения
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=300)
-        buf.seek(0)
-        
-        # 2. Загружаем изображение в QPixmap
-        pixmap = QtGui.QPixmap()
-        pixmap.loadFromData(buf.getvalue())
-        
-        # 3. Устанавливаем pixmap в QLabel
-        self.plot_pic.setPixmap(pixmap) 
-        
-        # (Опционально) Масштабируем изображение под размер QLabel
-        self.plot_pic.setScaledContents(True)
+        try:
+            # 1. Создаем буфер в памяти
+            buf = io.BytesIO()
+            # 2. Сохраняем фигуру в буфер в формате PNG
+            #    dpi можно подобрать для нужного размера/качества на экране (напр. 96)
+            fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+            buf.seek(0) # Перемещаем указатель в начало буфера
+
+            # 3. Загружаем данные из буфера в QPixmap
+            pixmap = QtGui.QPixmap()
+            pixmap.loadFromData(buf.getvalue())
+            buf.close() # Закрываем буфер
+
+            # !!! ВАЖНО: Закрываем фигуру Matplotlib после использования, чтобы освободить память !!!
+            plt.close(fig)
+
+            # 4. Устанавливаем QPixmap в ваш QLabel
+            self.plot_pic.setPixmap(pixmap)
+            # (Опционально) Масштабируем изображение под размер QLabel
+            self.plot_pic.setScaledContents(True)
+            print("График отображен в QLabel.")
+        except Exception as e:
+            self.show_error(f"Неизвестная ошибка в calc.testFFI или отображении графика: {e}")
+            if fig: plt.close(fig) # Закрыть фигуру и при других ошибках
 
     def check_mode_then_start(self):
         """Проверяет режим движения и запускает соответствующий метод."""
@@ -897,9 +907,9 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             plt.close(fig)
 
             # 4. Устанавливаем QPixmap в ваш QLabel
-            self.plot_pic.setPixmap(pixmap)
+            self.plot_pic_test.setPixmap(pixmap)
             # (Опционально) Масштабируем изображение под размер QLabel
-            self.plot_pic.setScaledContents(True)
+            self.plot_pic_test.setScaledContents(True)
             print("График отображен в QLabel.")
         except Exception as e:
             self.show_error(f"Неизвестная ошибка в calc.testFFI или отображении графика: {e}")
