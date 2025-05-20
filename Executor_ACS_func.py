@@ -13,7 +13,8 @@ from Keithley_2182A.keithley import Keithley2182A as ktl
 import time
 from PyQt6 import QtGui
 import io
-from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox
+from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox, QPlainTextEdit
+from PyQt6.QtGui import QTextCursor, QColor
 from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal, QThread, pyqtSlot
 # Импортируем сгенерированный класс. Команда: pyuic6 GUI_for_controller_with_tabs2.ui -o GUI_for_controller_with_tabs2.py
 from GUI_for_controller_with_tabs2 import Ui_MainWindow
@@ -68,6 +69,14 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         self.setupUi(self)  # Инициализация интерфейса
         self.stand = None
         self.axis_workers = {}  # Словарь: {axis_id: worker}
+        
+        # Настройка окна для вывода принтов
+        #?? Блок настройки логгера
+        self._setup_logger()
+        
+        # Тестовый вывод
+        self.dual_print(self.Console, "Программа запущена!")
+
 
         # Создаём словари для 4 осей:
         '''Где есть getattr(self, f"чётотам{i}") - это функция, которая возвращает объект QLineEdit для ввода перемещения оси i.'''
@@ -136,6 +145,42 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             axis["deceleration_input"].setText("100")
             axis["kill_deceleration_input"].setText("166.67")
             axis["jerk_input"].setText("133.33")
+    
+    def dual_print(self, log_window, message):
+        """
+        Основной метод вывода:
+        - message: текст сообщения
+        - print(): вывод в консоль
+        - appendPlainText(): вывод в GUI
+        - _auto_scroll(): прокрутка вниз
+        """
+        print(message)  # Консольный вывод
+        self.Console.appendPlainText(message)  # GUI-вывод
+        self._auto_scroll()  # Автопрокрутка
+
+    def _setup_logger(self):
+        """Приватный метод для настройки логгера"""
+        # 1. Делаем лог только для чтения
+        self.Console.setReadOnly(True)
+        
+        # 2. Отключаем перенос строк (удобно для логов)
+        self.Console.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        
+        # 3. Опционально: задаем шрифт с фиксированной шириной
+        font = self.Console.font()
+        font.setFamily("Courier New")  # Моноширинный шрифт
+        self.Console.setFont(font)
+
+    def _auto_scroll(self):
+        """Приватный метод для автопрокрутки"""
+        cursor = self.Console.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self.Console.setTextCursor(cursor)
+
+    def clear_logs(self):
+        """Очистка лога"""
+        self.Console.clear()
+
 
     def zeropos_axes(self):
         self.axes_data[0]["axis_obj"].set_pos(0)
@@ -496,7 +541,6 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         Больше сегментов не будет.'''
         except Exception as e:
             print(f"Ошибка при завершении сегмента (acsc.endSequenceM)")
-            #!ВОЗМОЖНО СТОИТ ПЕРВУЮ ФУНКЦИЮ ЗАПУСТИТЬ ПОСЛЕДНЕЙ!!!!
         
         acsc.waitMotionEnd(self.stand.hc, leader, 30000)
         print('Прибыла в начальную точку')
@@ -907,9 +951,9 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             plt.close(fig)
 
             # 4. Устанавливаем QPixmap в ваш QLabel
-            self.plot_pic.setPixmap(pixmap)
+            self.plot_pic_test.setPixmap(pixmap)
             # (Опционально) Масштабируем изображение под размер QLabel
-            self.plot_pic.setScaledContents(True)
+            self.plot_pic_test.setScaledContents(True)
             print("График отображен в QLabel.")
         except Exception as e:
             self.show_error(f"Неизвестная ошибка в calc.testFFI или отображении графика: {e}")
