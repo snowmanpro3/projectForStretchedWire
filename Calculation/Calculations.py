@@ -8,60 +8,38 @@ from scipy.signal import get_window  # Добавляем оконную фун�
 import warnings
 import chardet
 
-def firstFieldIntegral(X1, X2, Y1, Y2, time, eds, 
-                       save_dir="FFI", 
-                       filename="first_field_integral.png",
-                       save_path=None):
+def firstFieldIntegral(log: dict, mode: str):
     
-    # Полный путь к файлу
-    if save_path is None:
-        save_path = (f"Calculation/{save_dir}/{filename}")
-
-    try:
-        x1_arr = np.array(X1)
-        x2_arr = np.array(X2)
-        time_arr = np.array(time)
-        eds_arr = np.array(eds)
-
-        if not (len(x2_arr) == len(x1_arr) == len(time_arr) == len(eds_arr)):
-                print("Ошибка: Длины массивов не соответствуют ожидаемым!")
-                print(f"len(X1)={len(x1_arr)}, len(X2)={len(x2_arr)}, len(time)={len(time_arr)}, len(eds)={len(eds_arr)}")
-                print("Ожидается: len(X2) == len(eds) == len(X1)-1 == len(time)-1")
-                return None
-        
-        # Вычисление временных интервалов
-        dt = time_arr[1:] - time_arr[:-1] # Используем np.diff для краткости
-        dt = np.diff(time_arr)
-
-        # Вычисление скорости (поэлементно)
-        # Подавляем предупреждения о делении на ноль временно
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            vel = (x2_arr - x1_arr) / dt
-            # Заменяем бесконечности (от деления на 0) и NaN на 0 или другое значение
-            vel = np.nan_to_num(vel, nan=0.0, posinf=0.0, neginf=0.0)
-        
-        first_fi = eds / vel 
-
-        # Создаем фигуру перед построением графика
-        fig, ax = plt.subplots()
-        
-        # Строим график зависимости первого магнитного поля от координаты нити (X1, например)
-        ax.plot(X2, first_fi)
-        ax.xlabel('Координата X2 (мм)')
-        ax.ylabel('Первый интеграл магнитного поля')
-        ax.title('Зависимость первого интеграла магнитного поля от координаты нити')
-        ax.grid(which="both", linestyle="--")  # Сетка для удобства
-
-        if save_path:
-                fig.savefig(save_path, dpi=300, bbox_inches='tight')
-                print(f"График сохранён как {save_path}")
-        
-        return fig
+    current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    str_current_time = str(current_time)
+    save_path_csv = f"Logs\\FFI\\FFIlog_{str_current_time}.csv"  # Путь сохранения в папку FFItest
     
-    except Exception as e:
-        print(f"Произошла ошибка в firstFieldIntegral: {e}")
-        return None
+    df = pd.DataFrame(log)
+    #! Если нужно удалить колонку ЭДС раскоментируй след строку
+    # df.drop(columns='eds')
+    df.index.name = 'Index'  # Присваю имя index индексам (создаются автоматически, можно даже отключить)
+    df.to_csv(save_path_csv, sep = ',') 
+
+    x_pos_previous = df['x_pos'].to_numpy()[:-1]
+    time = np.array(df['time'])[1:]
+    x_pos = df['x_pos'].to_numpy()[1:]
+    print(len(time), len(x_pos))
+
+    fig, ax = plt.subplots()
+
+    save_path = f"testlogs\\FFItest\\FFIgraph_{str_current_time}.png"
+        
+    ax.plot(time, x_pos)
+    ax.set_xlabel('Время')
+    ax.set_ylabel(f"Координата, {mode}")
+    ax.set_title('Зависимость')
+    ax.grid(which="both", linestyle="--")  # Сетка для удобства
+
+    if save_path:
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"График сохранён как {save_path}")
+    
+    return fig
 
 def demoFirstFieldIntegral(X1, X2, vel, eds, save_path=None):
     first_fi = eds / vel #Удалить пустые строки
