@@ -8,8 +8,7 @@ from scipy.signal import get_window  # Добавляем оконную фун�
 import warnings
 import chardet
 
-def firstFieldIntegral(log: dict, mode: str):
-    
+def firstFieldIntegral(log: dict, mode: str, vel: float):
     current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     str_current_time = str(current_time)
     save_path_csv = f"Logs\\FFI\\FFIlog_{str_current_time}.csv"  # Путь сохранения в папку FFItest
@@ -23,16 +22,18 @@ def firstFieldIntegral(log: dict, mode: str):
     x_pos_previous = df['x_pos'].to_numpy()[:-1]
     time = np.array(df['time'])[1:]
     x_pos = df['x_pos'].to_numpy()[1:]
-    print(len(time), len(x_pos))
+    eds = np.array(df['eds'])[1:]
+    ffi = eds / vel
+    print(len(x_pos), len(ffi))
 
     fig, ax = plt.subplots()
 
     save_path = f"testlogs\\FFItest\\FFIgraph_{str_current_time}.png"
         
-    ax.plot(time, x_pos)
-    ax.set_xlabel('Время')
-    ax.set_ylabel(f"Координата, {mode}")
-    ax.set_title('Зависимость')
+    ax.plot(x_pos, ffi)
+    ax.set_xlabel(f"Координата, {mode}")
+    ax.set_ylabel(f"Первый магнитный интеграл, Тл/м")
+    ax.set_title('Распределение первого магнитного интеграла')
     ax.grid(which="both", linestyle="--")  # Сетка для удобства
 
     if save_path:
@@ -40,6 +41,43 @@ def firstFieldIntegral(log: dict, mode: str):
             print(f"График сохранён как {save_path}")
     
     return fig
+
+def secondFieldIntegral(log: dict, mode : str, vel: float):
+    L = 2 # Длина нити
+    current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    str_current_time = str(current_time)
+    save_path_csv = f"Logs\\SFI\\SFIlog_{str_current_time}.csv"  # Путь сохранения в папку FFItest
+    
+    df = pd.DataFrame(log)
+    #! Если нужно удалить колонку ЭДС раскоментируй след строку
+    # df.drop(columns='eds')
+    df.index.name = 'Index'  # Присваю имя index индексам (создаются автоматически, можно даже отключить)
+    df.to_csv(save_path_csv, sep = ',') 
+
+    x_pos_previous = df['x_pos_0'].to_numpy()[:-1]
+    time = np.array(df['time'])[1:]
+    x_pos_0 = df['x_pos_0'].to_numpy()[1:]
+    x_pos_1 = df['x_pos_1'].to_numpy()[1:]
+    eds = np.array(df['eds'])[1:]
+    sfi = eds*L / (2*vel)
+    print(len(x_pos_0), len(sfi))
+
+    fig, ax = plt.subplots()
+
+    save_path = f"testlogs\\SFItest\\SFIgraph_{str_current_time}.png"
+        
+    ax.plot(x_pos_0, sfi)
+    ax.set_xlabel(f"Координата, {mode}")
+    ax.set_ylabel(f"Первый магнитный интеграл, Тл/м")
+    ax.set_title('Распределение первого магнитного интеграла')
+    ax.grid(which="both", linestyle="--")  # Сетка для удобства
+
+    if save_path:
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"График сохранён как {save_path}")
+    
+    return fig
+
 
 def demoFirstFieldIntegral(X1, X2, vel, eds, save_path=None):
     first_fi = eds / vel #Удалить пустые строки
@@ -112,7 +150,7 @@ def testFFI(log: dict, mode: str):
     
     df = pd.DataFrame(log)
     #! Если нужно удалить колонку ЭДС раскоментируй след строку
-    # df.drop(columns='eds')
+    df.drop(columns='eds')
     df.index.name = 'Index'  # Присваю имя index индексам (создаются автоматически, можно даже отключить)
     df.to_csv(save_path_csv, sep = ',') 
 
@@ -138,7 +176,35 @@ def testFFI(log: dict, mode: str):
     return fig
 
 
-def testCircle(log: dict):
-    
-     
-    pass
+def testSFI(log: dict, mode: str):
+    current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    str_current_time = str(current_time)
+    save_path_csv = f"testlogs\\SFItest\\SFIlog_{str_current_time}.csv"  # Путь сохранения в папку FFItest
+
+    df = pd.DataFrame(log)
+    #! Если нужно удалить колонку ЭДС раскоментируй след строку
+    df.drop(columns='eds')
+    df.index.name = 'Index'  # Присваю имя index индексам (создаются автоматически, можно даже отключить)
+    df.to_csv(save_path_csv, sep = ',') 
+
+    x_pos_previous = df['x_pos_0'].to_numpy()[:-1]
+    time = np.array(df['time'])[1:]
+    x_pos_0 = df['x_pos_0'].to_numpy()[1:]
+    x_pos_1 = df['x_pos_1'].to_numpy()[1:]
+    print(len(time), len(x_pos_0))
+
+    fig, ax = plt.subplots()
+
+    save_path = f"testlogs\\SFItest\\SFIgraph_{str_current_time}.png"
+        
+    ax.plot(time, x_pos_0)
+    ax.set_xlabel('Время')
+    ax.set_ylabel(f"Координата, {mode}")
+    ax.set_title('Зависимость')
+    ax.grid(which="both", linestyle="--")  # Сетка для удобства
+
+    if save_path:
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"График сохранён как {save_path}")
+
+    return fig
