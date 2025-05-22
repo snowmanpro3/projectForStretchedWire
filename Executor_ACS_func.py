@@ -13,7 +13,7 @@ from Keithley_2182A.keithley import Keithley2182A as ktl
 import time
 from PyQt6 import QtGui
 import io
-from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox, QPlainTextEdit
+from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox, QPlainTextEdit, QTabWidget
 from PyQt6.QtGui import QTextCursor, QColor
 from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal, QThread, pyqtSlot
 # Импортируем сгенерированный класс. Команда: pyuic6 GUI_for_controller_with_tabs2.ui -o GUI_for_controller_with_tabs2.py
@@ -36,7 +36,9 @@ class SingleAxisWorker(QThread):
         self.running = False    # Флаг работы потока
 
     def run(self):
-        """Основной цикл потока"""
+        """Основной цикл потока
+        Код внутри этого метода выполняется в отдельном потоке, когда вызывается worker.start()
+        """
         self.running = True
         while self.running:
             try:
@@ -56,6 +58,7 @@ class SingleAxisWorker(QThread):
                 self.error_signal.emit(self.axis_id, str(e))
             
             self.msleep(100)  # Пауза 10 мс (можно уменьшить для более частого опроса)
+            #! Здесь определяется частота обновления позиций
 
     def stop(self):
         """Корректная остановка потока"""
@@ -69,14 +72,15 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         self.setupUi(self)  # Инициализация интерфейса
         self.stand = None
         self.axis_workers = {}  # Словарь: {axis_id: worker}
+
+        # Тестовый вывод
+        self.dual_print("Программа запущена!")
         
         # Настройка окна для вывода принтов
         #?? Блок настройки логгера
-        self._setup_logger()
-        
-        # Тестовый вывод
-        self.dual_print(self.Console, "Программа запущена!")
+        self._setup_logger(self.Console)
 
+        self.initTabText()
 
         # Создаём словари для 4 осей:
         '''Где есть getattr(self, f"чётотам{i}") - это функция, которая возвращает объект QLineEdit для ввода перемещения оси i.'''
@@ -122,6 +126,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         self.start_mode_motion.clicked.connect(self.check_mode_then_start)
         self.stop_button_test.clicked.connect(self.stop_all_axes)
         self.start_mode_motion_test.clicked.connect(self.check_mode_then_start_test)
+        self.tab1.currentChanged.connect(self.currentTab)
         
 
         for i in range(4):
@@ -146,7 +151,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             axis["kill_deceleration_input"].setText("166.67")
             axis["jerk_input"].setText("133.33")
     
-    def dual_print(self, log_window, message):
+    def dual_print(self, message, log_window=None):
         """
         Основной метод вывода:
         - message: текст сообщения
@@ -154,33 +159,47 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         - appendPlainText(): вывод в GUI
         - _auto_scroll(): прокрутка вниз
         """
+        if log_window == None:
+            log_window = self.Console
         print(message)  # Консольный вывод
-        self.Console.appendPlainText(message)  # GUI-вывод
-        self._auto_scroll()  # Автопрокрутка
+        log_window.appendPlainText(message)  # GUI-вывод
+        self._auto_scroll(log_window)  # Автопрокрутка
 
-    def _setup_logger(self):
+    def _setup_logger(self, log_window=None):
         """Приватный метод для настройки логгера"""
+        if log_window == None:
+            log_window = self.Console
         # 1. Делаем лог только для чтения
-        self.Console.setReadOnly(True)
+        log_window.setReadOnly(True)
         
         # 2. Отключаем перенос строк (удобно для логов)
-        self.Console.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        log_window.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         
         # 3. Опционально: задаем шрифт с фиксированной шириной
-        font = self.Console.font()
+        font = log_window.font()
         font.setFamily("Courier New")  # Моноширинный шрифт
-        self.Console.setFont(font)
+        log_window.setFont(font)
 
-    def _auto_scroll(self):
+    def _auto_scroll(self, log_window):
         """Приватный метод для автопрокрутки"""
-        cursor = self.Console.textCursor()
+        cursor = log_window.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
-        self.Console.setTextCursor(cursor)
+        log_window.setTextCursor(cursor)
 
-    def clear_logs(self):
+    def clear_logs(self, log_window=None):
         """Очистка лога"""
-        self.Console.clear()
+        if log_window == None:
+            log_window = self.Console
+        log_window.clear()
 
+    def initTabText(self):
+        # current_tab = self.tab1.currentIndex()   # Объект текущего окна
+        # current_tab_name = self.tab1.tabText(current_tab)  # Название текущего окна
+        
+        self.tablePosition.item(0, 0).setText(f"{1}")
+        self.tablePosition.item(1, 0).setText(f"{2}") # 4.15151:.3f
+        self.tablePosition.item(2, 0).setText(f"{3}")
+        self.tablePosition.item(3, 0).setText(f"{4}")
 
     def zeropos_axes(self):
         self.axes_data[0]["axis_obj"].set_pos(0)
@@ -341,6 +360,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             self.show_error("Контроллер не подключён!")
             return
         
+        self.dual_print(f"Открытая вкладка: {self.tab1.tabText(self.tab1.currentIndex())}")
         data = self.axes_data
         move_distances = []
         self.startpointM = data[self.selected_axes[0]]['axis_obj'].get_pos()
@@ -378,6 +398,10 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         """Показывает сообщение об ошибке."""
         QMessageBox.critical(self, "Ошибка", message)
 
+    def currentTab(self):
+        self.currentTab = self.tab1.currentIndex()
+        self.currentTabName = self.tab1.tabText(self.currentTab)
+        self.dual_print(f'Вкладка переключена на "{self.currentTabName}"')
 
     def start_position_updates(self):
         """Запуск отдельного потока для каждой выбранной оси"""
@@ -393,6 +417,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             # Создаём и настраиваем новый поток
             worker = SingleAxisWorker(self.stand, axis_id)
             worker.update_signal.connect(self.handle_axis_update)
+            '''"Когда worker излучит update_signal, вызови мой метод handle_axis_update и передай ему данные из сигнала"'''
             worker.error_signal.connect(self.handle_axis_error)
             worker.start()
             
@@ -404,22 +429,30 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             worker.stop()
         self.axis_workers.clear()
 
-    @pyqtSlot(int, float, bool, bool)
+    @pyqtSlot(int, float, bool, bool) 
     def handle_axis_update(self, axis_id, pos, moving, in_pos):
         """Обновление данных оси в GUI (выполняется в главном потоке)"""
         axis_data = self.axes_data[axis_id]
-        
-        # Обновляем значения
-        axis_data["pos_label"].setText(f"Позиция: {pos:.4f} мм")
-        axis_data["is_moving_label"].setText(f"Движение: {'Да' if moving else 'Нет'}")
-        axis_data["is_in_pos_label"].setText(f"На месте: {'Да' if in_pos else 'Нет'}")
 
-        # Меняем цвет индикаторов
-        moving_color = "rgb(0, 128, 0)" if moving else "rgb(255, 0, 0)"  # Красный/Зелёный
-        in_pos_color = "rgb(0, 128, 0)" if in_pos else "rgb(255, 0, 0)"
-        
-        axis_data["is_moving_indicator"].setStyleSheet(f"background-color: {moving_color}")
-        axis_data["is_in_pos_indicator"].setStyleSheet(f"background-color: {in_pos_color}")
+        current_tab = self.tab1.currentIndex()   # Объект текущего окна
+        current_tab_name = self.tab1.tabText(current_tab)  # Название текущего окна
+        #! Тут остановился!!!
+
+        if current_tab_name == "Settings":  # Замените на актуальное название вкладки
+            # Обновляем значения
+            axis_data["pos_label"].setText(f"Позиция: {pos:.4f} мм")
+            axis_data["is_moving_label"].setText(f"Движение: {'Да' if moving else 'Нет'}")
+            axis_data["is_in_pos_label"].setText(f"На месте: {'Да' if in_pos else 'Нет'}")
+
+            # Меняем цвет индикаторов
+            moving_color = "rgb(0, 128, 0)" if moving else "rgb(255, 0, 0)"  # Красный/Зелёный
+            in_pos_color = "rgb(0, 128, 0)" if in_pos else "rgb(255, 0, 0)"
+            
+            axis_data["is_moving_indicator"].setStyleSheet(f"background-color: {moving_color}")
+            axis_data["is_in_pos_indicator"].setStyleSheet(f"background-color: {in_pos_color}")
+
+        elif current_tab_name == "Выбор режимов движения":
+            self.tablePosition.item(axis_id, 1).setText(f"Позиция: {pos:.4f} мм")
 
     @pyqtSlot(int, str)
     def handle_axis_error(self, axis_id, error_msg):
@@ -740,7 +773,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         self.stand.enable_all()  # Включаем все оси перед движением
         acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, axesM, start_points, acsc.SYNCHRONOUS)
         acsc.waitMotionEnd(self.stand.hc, leader, 15000)
-        print('Прибыла в начальную точку')
+        self.dual_print('Прибыла в начальную точку')
 
         #!Радиус самой дуги задается через ее геометрические параметры (центр, угол/конечная точка) в команде segmentArc....
         try:
@@ -766,10 +799,10 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                                         None       # Wait (синхронный вызов планирования)
                                         )
         except Exception as e:
-            print(f"Ошибка при запуске движения по окружности (extendedSegmentedMotionV2): {e}")
+            self.dual_print(f"Ошибка при запуске движения по окружности (extendedSegmentedMotionV2): {e}")
             traceback.print_exc()
         else:
-            print(f"Функция acsc.extendedSegmentedMotionV2 выполнена без ошибок")
+            self.dual_print(f"Функция acsc.extendedSegmentedMotionV2 выполнена без ошибок")
         
         #!!!⬇️⬇️⬇️⬇️
         '''
@@ -799,10 +832,10 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                                None            # Wait (синхронный вызов планирования)
                                )
         except Exception as e:
-            print(f"Ошибка при добавлении дуги (acsc.segmentArc2V2): {e}")
+            self.dual_print(f"Ошибка при добавлении дуги (acsc.segmentArc2V2): {e}")
             traceback.print_exc()
         else:
-            print(f"Функция acsc.segmentArc2V2 выполнена без ошибок")
+            self.dual_print(f"Функция acsc.segmentArc2V2 выполнена без ошибок")
         
         try:
             acsc.endSequenceM(self.stand.hc, axesM, None)
@@ -811,13 +844,13 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         Эта функция сигнализирует контроллеру: "Все, описание траектории закончено.
         Больше сегментов не будет.'''
         except Exception as e:
-            print(f"Ошибка при завершении сегмента (acsc.endSequenceM)")
+            self.dual_print(f"Ошибка при завершении сегмента (acsc.endSequenceM)")
             #!ВОЗМОЖНО СТОИТ ПЕРВУЮ ФУНКЦИЮ ЗАПУСТИТЬ ПОСЛЕДНЕЙ!!!!
         else:
-            print(f"Функция acsc.endSequenceM выполнена без ошибок")
+            self.dual_print(f"Функция acsc.endSequenceM выполнена без ошибок")
         
         acsc.waitMotionEnd(self.stand.hc, leader, 30000)
-        print('Прибыла в начальную точку')
+        self.dual_print('Прибыла в начальную точку')
 
     def ffi_test(self):
         """Проверяет режим движения и запускает соответствующий метод."""
@@ -832,7 +865,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             self.ffi_distance_input_test.setText('0.0')
             distance = 0.0
         else:
-            print(f"Дистанция успешно введена и устанновлена")
+            self.dual_print(f"Дистанция успешно введена и устанновлена")
 
         try:
             mode = (self.ffi_mode_input_test.text())
@@ -856,7 +889,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         except Exception as e:
             self.show_error("Введите капсом 'X' или 'Y'")
         else:
-            print(f"Мод успешно выбран")
+            self.dual_print(f"Мод успешно выбран")
 
         try:
             speed = float(self.ffi_speed_input_test.text())
@@ -865,7 +898,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         except ValueError:
             self.show_error("Что-то со скоростью мб")
         else:
-            print(f"Скорость успешно введена и установлена")
+            self.dual_print(f"Скорость успешно введена и установлена")
 
         self.ffi_motion_log = {  # Инициализация лога
             'time': [],
@@ -879,9 +912,9 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
             acsc.waitMotionEnd(self.stand.hc, leader, 20000)
         except Exception as e:
-            print(f"Ошибка при запуске синхронного движения: {e}")
+            self.dual_print(f"Ошибка при запуске синхронного движения: {e}")
         else:
-            print(f"Функция acsc.toPointM выполнена без ошибок, нить выведена на старт")
+            self.dual_print(f"Функция acsc.toPointM выполнена без ошибок, нить выведена на старт")
         time.sleep(0.2) #! Чтобы контроллер успел увидеть остановку оси???
 
         # try:
@@ -895,9 +928,9 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             distances = [distance, distance]
             acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
         except Exception as e:
-            print(f"Ошибка при запуске основного синхронного движения: {e}")
+            self.dual_print(f"Ошибка при запуске основного синхронного движения: {e}")
         else:
-            print(f"Измерение FFI успешно запущено, идёт измерение...")
+            self.dual_print(f"Измерение FFI успешно запущено, идёт измерение...")
 
         # Writing log data
         start_time = time.time()
@@ -922,13 +955,13 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             self.ffi_motion_log['x_pos'] = pos_log                  # список координат в словарь-ffi_motion_log
             self.ffi_motion_log['y_pos'] = [0] * len(self.ffi_motion_log['time'])
             # self.ffi_motion_log['eds'] = [0] * len(self.ffi_motion_log['time'])
-            print(len(self.ffi_motion_log['x_pos']),
+            self.dual_print(len(self.ffi_motion_log['x_pos']),
                         len(self.ffi_motion_log['time']))
         elif mode == 'Y':
             self.ffi_motion_log['y_pos'] = pos_log
             self.ffi_motion_log['x_pos'] = [0] * len(self.ffi_motion_log['time'])
             # self.ffi_motion_log['eds'] = [0] * len(self.ffi_motion_log['time'])
-            print(len(self.ffi_motion_log['y_pos']),
+            self.dual_print(len(self.ffi_motion_log['y_pos']),
                         len(self.ffi_motion_log['time']))
 
 
@@ -954,7 +987,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             self.plot_pic_test.setPixmap(pixmap)
             # (Опционально) Масштабируем изображение под размер QLabel
             self.plot_pic_test.setScaledContents(True)
-            print("График отображен в QLabel.")
+            self.dual_print("График отображен в QLabel.")
         except Exception as e:
             self.show_error(f"Неизвестная ошибка в calc.testFFI или отображении графика: {e}")
             if fig: plt.close(fig) # Закрыть фигуру и при других ошибках
