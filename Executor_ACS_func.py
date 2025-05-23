@@ -127,6 +127,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         self.stop_button_test.clicked.connect(self.stop_all_axes)
         self.start_mode_motion_test.clicked.connect(self.check_mode_then_start_test)
         self.tab1.currentChanged.connect(self.currentTab)
+        self.findMagAxes_button.clicked.connect(self.findMagneticAxis)
         
 
         for i in range(4):
@@ -192,14 +193,15 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             log_window = self.Console
         log_window.clear()
 
+#!МБ ЭТО УБРАТЬ И СДЕЛАТЬ ЧЕРЕЗ ДИЗАЙНЕР
     def initTabText(self):
         # current_tab = self.tab1.currentIndex()   # Объект текущего окна
         # current_tab_name = self.tab1.tabText(current_tab)  # Название текущего окна
         
-        self.tablePosition.item(0, 0).setText(f"{1}")
-        self.tablePosition.item(1, 0).setText(f"{2}") # 4.15151:.3f
-        self.tablePosition.item(2, 0).setText(f"{3}")
-        self.tablePosition.item(3, 0).setText(f"{4}")
+        self.tablePosition.item(0, 0).setText(f"{0}")
+        self.tablePosition.item(1, 0).setText(f"{1}") # 4.15151:.3f
+        self.tablePosition.item(2, 0).setText(f"{2}")
+        self.tablePosition.item(3, 0).setText(f"{3}")
 
     def zeropos_axes(self):
         self.axes_data[0]["axis_obj"].set_pos(0)
@@ -432,11 +434,11 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         """Обновление данных оси в GUI (выполняется в главном потоке)"""
         axis_data = self.axes_data[axis_id]
 
-        current_tab = self.tab1.currentIndex()   # Объект текущего окна
-        current_tab_name = self.tab1.tabText(current_tab)  # Название текущего окна
+        # current_tab = self.tab1.currentIndex()   # Объект текущего окна
+        # current_tab_name = self.tab1.tabText(current_tab)  # Название текущего окна
         #! Тут остановился!!!
 
-        if current_tab_name == "Settings":  # Замените на актуальное название вкладки
+        if self.currentTabName == "Settings":  # Замените на актуальное название вкладки
             # Обновляем значения
             axis_data["pos_label"].setText(f"Позиция: {pos:.4f} мм")
             axis_data["is_moving_label"].setText(f"Движение: {'Да' if moving else 'Нет'}")
@@ -449,7 +451,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             axis_data["is_moving_indicator"].setStyleSheet(f"background-color: {moving_color}")
             axis_data["is_in_pos_indicator"].setStyleSheet(f"background-color: {in_pos_color}")
 
-        elif current_tab_name == "Выбор режимов движения":
+        elif self.currentTabName == "Выбор режимов движения":
             self.tablePosition.item(axis_id, 1).setText(f"Позиция: {pos:.4f} мм")
 
     @pyqtSlot(int, str)
@@ -598,6 +600,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             if mode and distance != 0:
                 if mode == 'X':
                     ffi_axes = [1,3]
+                    self.selected_axes = [1, 3]
                     master = ffi_axes[0]
                     slave = ffi_axes[1]
                     for axis in ffi_axes:
@@ -606,6 +609,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                             self.axes_data[axis]["state"] = True
                 elif mode == 'Y':
                     ffi_axes = [0,2]
+                    self.selected_axes = [0, 2]
                     master = ffi_axes[0]
                     slave = ffi_axes[1]
                     for axis in ffi_axes:
@@ -642,8 +646,8 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
 
         distances = [-(distance/2), -(distance/2)]
         try:
-            acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
             self.start_position_updates()
+            acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
             acsc.waitMotionEnd(self.stand.hc, master, 20000)
         except Exception as e:
             self.dual_print(f"Ошибка при запуске синхронного движения: {e}")
@@ -651,9 +655,10 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             self.dual_print(f"Функция acsc.toPointM выполнена без ошибок, нить выведена на старт")
         time.sleep(0.2) #! Чтобы контроллер успел увидеть остановку оси???
         try:    
+            self.start_position_updates()
             distances = [distance, distance]
             acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
-            self.start_position_updates()
+            time.sleep(0.2)
             #*acsc.toPointM сама добавляет -1 в конец списка осей
         except Exception as e:
             self.dual_print(f"Ошибка при запуске основного синхронного движения: {e}")
@@ -880,6 +885,263 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             self.start_ffi_motion()
         elif selected_mode == "Второй магнитный интеграл":  #Todo добавить возврат в ноль мб
             self.start_sfi_motion()
+
+
+    def _perform_scan_and_center(self, scan_type, mode, axes_pair, distance, speed, nano):
+        master = axes_pair[0]
+        slave = axes_pair[1] # Used for SFI pair, FFI effectively uses master for logging
+
+        for axis_id in axes_pair:
+            if not self.axes_data[axis_id]["state"]:
+                self.axes_data[axis_id]['axis_obj'].enable() #
+                self.axes_data[axis_id]["state"] = True #
+                self.dual_print(f"Ось {axis_id} включена.")
+            self.axes_data[axis_id]['axis_obj'].set_speed(speed) #
+        self.dual_print(f"Скорость {speed} мм/с установлена для осей {axes_pair}.")
+
+        log_data_points = {'time': [], 'eds': []}
+        if scan_type == "FFI":
+            log_data_points['pos'] = [] # For master axis position
+        elif scan_type == "SFI":
+            log_data_points['pos_0'] = [] # Master axis
+            log_data_points['pos_1'] = [] # Slave axis
+        
+        # --- Motion Sequence ---
+        self.dual_print(f"Подготовка к сканированию {scan_type} по оси {mode}...")
+        if scan_type == "FFI":
+            initial_moves = [-(distance / 2.0), -(distance / 2.0)]
+            scan_moves = [distance, distance]
+        elif scan_type == "SFI":
+            initial_moves = [-(distance / 2.0), (distance / 2.0)]
+            scan_moves = [distance, -distance]
+        else:
+            self.show_error(f"Неизвестный тип сканирования: {scan_type}")
+            return None
+
+        acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(axes_pair), tuple(initial_moves), acsc.SYNCHRONOUS) #
+        acsc.waitMotionEnd(self.stand.hc, master, 30000) # Increased timeout
+        time.sleep(0.2) #
+        self.dual_print(f"Перемещение на начальную точку начала сканирования {scan_type} {mode} завершено.")
+
+        acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(axes_pair), tuple(scan_moves), acsc.SYNCHRONOUS) #
+        self.dual_print(f"Начало сканирования {scan_type} {mode} ({distance} мм)...")
+        
+        # --- Data Logging ---
+        scan_start_time = time.time()
+        poll_interval = 0.1 # Poll more frequently for better data
+        
+        max_log_duration = (distance / speed) * 1.5 + 5 # Estimate max duration + buffer
+        log_end_time = time.time() + max_log_duration
+
+        while time.time() < log_end_time:
+            pos_m = acsc.getFPosition(self.stand.hc, master) #
+            eds_v = nano.get_voltage() #
+            current_t_rel = time.time() - scan_start_time
+
+            log_data_points['time'].append(current_t_rel)
+            log_data_points['eds'].append(eds_v)
+            if scan_type == "FFI":
+                log_data_points['pos'].append(pos_m)
+            elif scan_type == "SFI":
+                log_data_points['pos_0'].append(pos_m)
+                pos_s = acsc.getFPosition(self.stand.hc, slave) #
+                log_data_points['pos_1'].append(pos_s)
+
+            motor_state_val = acsc.getMotorState(self.stand.hc, master) #
+            if motor_state_val['in position']: #
+                self.dual_print(f"Сканирование {scan_type} {mode}: Движение завершено, сбор данных остановлен.")
+                break
+            time.sleep(poll_interval)
+        else: # Loop exited due to timeout
+            self.dual_print(f"Сканирование {scan_type} {mode}: Превышено время ожидания сбора данных.")
+            # Ensure motion is stopped if it didn't complete
+            acsc.killAll(self.stand.hc, acsc.SYNCHRONOUS)
+
+
+        # --- Process Data and Find Minimum ---
+        if not log_data_points['time'] or not log_data_points['eds']: # Check if any data was logged
+            self.dual_print(f"Нет данных для обработки {scan_type} {mode}. Сканирование могло быть слишком быстрым или коротким.")
+            return None
+        if scan_type == "FFI" and not log_data_points['pos']:
+            self.dual_print(f"Нет данных о позиции для FFI {mode}.")
+            return None
+        if scan_type == "SFI" and not log_data_points['pos_0']:
+            self.dual_print(f"Нет данных о позиции для SFI {mode}.")
+            return None
+
+        min_coord = None
+        try:
+            if scan_type == "FFI":
+                integral_values = np.array(log_data_points['eds']) / speed
+                positions_abs = np.array(log_data_points['pos'])
+                if len(positions_abs) == 0: raise ValueError("Пустой массив позиций для FFI")
+                min_id = np.argmin(np.abs(integral_values))
+                min_coord = positions_abs[min_id]
+            elif scan_type == "SFI":
+                L_wire = 2.0 # Should be a class constant or parameter
+                integral_values = (np.array(log_data_points['eds']) * L_wire) / (2.0 * speed)
+                positions_abs = np.array(log_data_points['pos_0']) # SFI minimum refers to master axis position
+                if len(positions_abs) == 0: raise ValueError("Пустой массив позиций для SFI")
+                min_id = np.argmin(np.abs(integral_values))
+                min_coord = positions_abs[min_id]
+            
+            self.dual_print(f"{scan_type} {mode}: Мин. интеграла ({integral_values[min_id]:.4e}) на коорд. {min_coord:.4f}")
+        except Exception as e:
+            self.show_error(f"Ошибка при поиске минимума для {scan_type} {mode}: {e}")
+            return None
+            
+        if min_coord is None:
+            self.show_error(f"Не удалось определить координату минимума для {scan_type} {mode}.")
+            return None
+
+        # --- Move Axes to Center on the New Minimum Coordinate ---
+        self.dual_print(f"Центрирование осей {axes_pair} на новой координате {min_coord:.4f}...")
+        current_pos_master_ax = self.axes_data[master]['axis_obj'].get_pos()
+        current_pos_slave_ax = self.axes_data[slave]['axis_obj'].get_pos()
+
+        move_master_rel = min_coord - current_pos_master_ax
+        move_slave_rel = min_coord - current_pos_slave_ax # Both axes go to the same absolute coordinate
+
+        centering_distances = [move_master_rel, move_slave_rel]
+        acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(axes_pair), tuple(centering_distances), acsc.SYNCHRONOUS) #
+        acsc.waitMotionEnd(self.stand.hc, master, 30000) #
+        time.sleep(0.2)
+
+        # Final check of position
+        final_pos_master = self.axes_data[master]['axis_obj'].get_pos()
+        final_pos_slave = self.axes_data[slave]['axis_obj'].get_pos()
+        self.dual_print(f"{scan_type} {mode}: Оси перемещены. Позиции: {master}={final_pos_master:.4f}, {slave}={final_pos_slave:.4f} (цель была {min_coord:.4f})")
+        
+        return min_coord # Return the target coordinate for this dimension
+
+
+    def findMagneticAxis(self):
+        if not self.stand:
+            self.show_error("Контроллер не подключён!")
+            return
+
+        try:
+            distance = float(self.fma_distance_input.text()) #
+            speed = float(self.fma_speed_input.text()) #
+        except ValueError:
+            self.show_error("Ошибка: введите число через точку для дистанции/скорости.")
+            return
+        else:
+            self.dual_print(f"Поиск магнитной оси: Дистанция={distance} мм, Скорость={speed} мм/с") #
+
+        try:
+            # Assuming nano is accessible or initialized here
+            # self.nano = ktl(resource="GPIB0::7::INSTR", mode='meas') # Or pass as argument
+            if not hasattr(self, 'nano') or self.nano is None: # Simplified Keithley check
+                # Initialize self.nano if not done globally or pass it
+                self.nano = ktl(resource="GPIB0::7::INSTR", mode='meas') #
+            self.dual_print("Успешное подключение к Keithley.") #
+        except Exception as e:
+            self.dual_print(f"Ошибка подключения к Keithley: {e}") #
+            return
+
+        CONVERGENCE_THRESHOLD = 0.05  # mm порог сходимости
+        MAX_ITERATIONS = 2
+        current_iteration = 0
+
+        # Достаточно вывести начальные положения для информации.
+        initial_pos_axis0 = self.axes_data[0]["axis_obj"].get_pos()
+        initial_pos_axis1 = self.axes_data[1]["axis_obj"].get_pos()
+        initial_pos_axis2 = self.axes_data[2]["axis_obj"].get_pos()
+        initial_pos_axis3 = self.axes_data[3]["axis_obj"].get_pos()
+        self.dual_print(
+                f"Позиции в начале итерации (Axis_0, Axis_1, Axis_2, Axis_3): "
+                f"({initial_pos_axis0:.4f}, {initial_pos_axis1:.4f}, "
+                f"{initial_pos_axis2:.4f}, {initial_pos_axis3:.4f})"
+            )
+
+
+        while current_iteration < MAX_ITERATIONS:
+            self.dual_print(f"\n--- Итерация {current_iteration + 1} ---")
+
+            # Get current X and Y centers before adjustment in this iteration
+            # Using master axes as representative of the pair's position for simplicity in reporting start of iter
+            iter_start_pos_axis0 = self.axes_data[0]["axis_obj"].get_pos()
+            iter_start_pos_axis1 = self.axes_data[1]["axis_obj"].get_pos()
+            iter_start_pos_axis2 = self.axes_data[2]["axis_obj"].get_pos()
+            iter_start_pos_axis3 = self.axes_data[3]["axis_obj"].get_pos()
+            self.dual_print(
+                f"Позиции в начале итерации (Axis_0, Axis_1, Axis_2, Axis_3): "
+                f"({iter_start_pos_axis0:.4f}, {iter_start_pos_axis1:.4f}, "
+                f"{iter_start_pos_axis2:.4f}, {iter_start_pos_axis3:.4f})"
+            )
+
+            # 1. FFI по X
+            self.dual_print("Шаг 1: FFI по X...")
+            # Axes for X are 1 and 3. Master can be 1.
+            new_x_center = self._perform_scan_and_center('FFI', 'X', [1, 3], distance, speed, self.nano)
+            if new_x_center is None: self.dual_print("Ошибка в FFI X."); return
+            self.dual_print(f"FFI X: Новый целевой центр X = {new_x_center:.4f}")
+
+            # 2. FFI по Y
+            self.dual_print("Шаг 2: FFI по Y...")
+            # Axes for Y are 0 and 2. Master can be 0.
+            new_y_center = self._perform_scan_and_center('FFI', 'Y', [0, 2], distance, speed, self.nano)
+            if new_y_center is None: self.dual_print("Ошибка в FFI Y."); return
+            self.dual_print(f"FFI Y: Новый целевой центр Y = {new_y_center:.4f}")
+
+            # 3. SFI по X
+            self.dual_print("Шаг 3: SFI по X...")
+            new_x_center = self._perform_scan_and_center('SFI', 'X', [1, 3], distance, speed, self.nano)
+            if new_x_center is None: self.dual_print("Ошибка в SFI X."); return
+            self.dual_print(f"SFI X: Новый целевой центр X = {new_x_center:.4f}")
+
+            # 4. SFI по Y
+            self.dual_print("Шаг 4: SFI по Y...")
+            new_y_center = self._perform_scan_and_center('SFI', 'Y', [0, 2], distance, speed, self.nano)
+            if new_y_center is None: self.dual_print("Ошибка в SFI Y."); return
+            self.dual_print(f"SFI Y: Новый целевой центр Y = {new_y_center:.4f}")
+
+            # Current actual centers after all adjustments in this iteration
+            current_pos_axis0 = self.axes_data[0]["axis_obj"].get_pos()
+            current_pos_axis1 = self.axes_data[1]["axis_obj"].get_pos()
+            current_pos_axis2 = self.axes_data[2]["axis_obj"].get_pos()
+            current_pos_axis3 = self.axes_data[3]["axis_obj"].get_pos()
+            self.dual_print(
+                f"Позиции после завершения итерации (Axis_0, Axis_1, Axis_2, Axis_3): "
+                f"({current_pos_axis0:.4f}, {current_pos_axis1:.4f}, {current_pos_axis2:.4f}, {current_pos_axis3:.4f})"
+            )
+
+            # For convergence, compare the positions of the primary axes for X and Y movement
+            # to their positions at the start of this iteration.
+            delta_0 = abs(current_pos_axis0 - iter_start_pos_axis0)
+            delta_1 = abs(current_pos_axis1 - iter_start_pos_axis1)
+            delta_2 = abs(current_pos_axis2 - iter_start_pos_axis2)
+            delta_3 = abs(current_pos_axis3 - iter_start_pos_axis3)
+            self.dual_print(f"Изменения за итерацию (ΔAxis_0,ΔAxis_1,ΔAxis_2,ΔAxis_3): "
+                            f"({delta_0:.4f}, {delta_1:.4f}, {delta_2:.4f}, {delta_3:.4f})")
+
+            # Проверяем, что изменение КАЖДОЙ оси меньше порога
+            converged = (delta_0 < CONVERGENCE_THRESHOLD and
+                        delta_1 < CONVERGENCE_THRESHOLD and
+                        delta_2 < CONVERGENCE_THRESHOLD and
+                        delta_3 < CONVERGENCE_THRESHOLD)
+            
+            if converged:
+                self.dual_print(f"Схождение достигнуто на итерации {current_iteration + 1}.")
+                break
+            
+            current_iteration += 1
+        else: # Executed if the loop finished due to MAX_ITERATIONS
+            self.dual_print(f"Достигнуто максимальное количество итераций ({MAX_ITERATIONS}).")
+
+        # Сообщаем конечные координаты всех четырех моторов.
+        # Эти четыре значения определяют положение нити, которое соответствует найденной магнитной оси.
+        final_pos_axis0 = self.axes_data[0]["axis_obj"].get_pos()
+        final_pos_axis1 = self.axes_data[1]["axis_obj"].get_pos()
+        final_pos_axis2 = self.axes_data[2]["axis_obj"].get_pos()
+        final_pos_axis3 = self.axes_data[3]["axis_obj"].get_pos()
+        self.dual_print(f"Финальные координаты концов нити, определяющие магнитную ось:")
+        self.dual_print(f"  Ось 0 (Y1): {final_pos_axis0:.4f} мм")
+        self.dual_print(f"  Ось 1 (X1): {final_pos_axis1:.4f} мм")
+        self.dual_print(f"  Ось 2 (Y2): {final_pos_axis2:.4f} мм")
+        self.dual_print(f"  Ось 3 (X2): {final_pos_axis3:.4f} мм")
+
 
     def circle_test(self):
         if not self.stand:
