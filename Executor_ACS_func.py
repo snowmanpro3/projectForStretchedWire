@@ -559,7 +559,6 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             if mode and distance != 0:
                 if mode == 'X':
                     ffi_axes = [1,3]
-                    self.selected_axes = [1, 3]
                     master = ffi_axes[0]
                     slave = ffi_axes[1]
                     for axis in ffi_axes:
@@ -568,7 +567,6 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                             self.axes_data[axis]["state"] = True
                 elif mode == 'Y':
                     ffi_axes = [0,2]
-                    self.selected_axes = [0, 2]
                     master = ffi_axes[0]
                     slave = ffi_axes[1]
                     for axis in ffi_axes:
@@ -596,90 +594,116 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         else:
             self.dual_print("Успешное подключение к Keithley")
 
-        self.ffi_motion_log = {  # Инициализация лога
-            'time': [],
-            'x_pos': [],
-            'y_pos': [],
-            'eds': [],
-        }
+        # self.ffi_motion_log = {  # Инициализация лога
+        #     'time': [],
+        #     'x_pos': [],
+        #     'y_pos': [],
+        #     'eds': [],
+        # }
 
-        distances = [-(distance/2), -(distance/2)]
-        try:
-            self.start_position_updates()
-            acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
-            acsc.waitMotionEnd(self.stand.hc, master, 20000)
-        except Exception as e:
-            self.dual_print(f"Ошибка при запуске синхронного движения: {e}")
-        else:
-            self.dual_print(f"Функция acsc.toPointM выполнена без ошибок, нить выведена на старт")
-        time.sleep(0.2) #! Чтобы контроллер успел увидеть остановку оси???
-        try:    
-            self.start_position_updates()
-            distances = [distance, distance]
-            acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
-            time.sleep(0.2)
-            #*acsc.toPointM сама добавляет -1 в конец списка осей
-        except Exception as e:
-            self.dual_print(f"Ошибка при запуске основного синхронного движения: {e}")
-        else:
-            self.dual_print(f"Измерение FFI успешно запущено, идёт измерение...")
+        # distances = [-(distance/2), -(distance/2)]
+        # try:
+        #     self.start_position_updates()
+        #     acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
+        #     acsc.waitMotionEnd(self.stand.hc, master, 20000)
+        # except Exception as e:
+        #     self.dual_print(f"Ошибка при запуске синхронного движения: {e}")
+        # else:
+        #     self.dual_print(f"Функция acsc.toPointM выполнена без ошибок, нить выведена на старт")
+        # time.sleep(0.2) #! Чтобы контроллер успел увидеть остановку оси???
+        # try:    
+        #     self.start_position_updates()
+        #     distances = [distance, distance]
+        #     acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
+        #     time.sleep(0.2)
+        #     #*acsc.toPointM сама добавляет -1 в конец списка осей
+        # except Exception as e:
+        #     self.dual_print(f"Ошибка при запуске основного синхронного движения: {e}")
+        # else:
+        #     self.dual_print(f"Измерение FFI успешно запущено, идёт измерение...")
         
         # Writing log data
-        start_time = time.time()
-        poll_interval = 0.2
-        pos_log = []
-        nano = ktl(resource="GPIB0::7::INSTR", mode='meas')              # Создаём экземпляр класса Keithley2182A
-        while True:
-            pos = acsc.getFPosition(self.stand.hc, master)  # Спрашиваем позицию оси-лидера у контроллера
-            eds = nano.get_voltage()
-            pos_log.append(pos)                                     # Добавляем в список координат (X или Y)
-            self.ffi_motion_log['time'].append(time.time() - start_time) # Добавляем в список текущее время с момента начала движения
-            self.ffi_motion_log['eds'].append(eds)                       # Добавляем значение эдс от кейтли в список
+        # start_time = time.time()
+        # poll_interval = 0.2
+        # pos_log = []
+        # while True:
+        #     pos = acsc.getFPosition(self.stand.hc, master)  # Спрашиваем позицию оси-лидера у контроллера
+        #     eds = nano.get_voltage()
+        #     pos_log.append(pos)                                     # Добавляем в список координат (X или Y)
+        #     self.ffi_motion_log['time'].append(time.time() - start_time) # Добавляем в список текущее время с момента начала движения
+        #     self.ffi_motion_log['eds'].append(eds)                       # Добавляем значение эдс от кейтли в список
 
-            motor_state = acsc.getMotorState(self.stand.hc, master)        # Если ось не движется, то закрываем цикл
-            if motor_state['in position']:
-                self.show_error("Движение успешно завершено")
-                break
-            time.sleep(poll_interval)                                    # Пауза между опросами            
+        #     motor_state = acsc.getMotorState(self.stand.hc, master)        # Если ось не движется, то закрываем цикл
+        #     if motor_state['in position']:
+        #         self.show_error("Движение успешно завершено")
+        #         break
+        #     time.sleep(poll_interval)                                    # Пауза между опросами            
         
-        if mode == 'X':                                                  # Вспоминаем, в какой плоскости двигались и возвращаем
-            self.ffi_motion_log['x_pos'] = pos_log                  # список координат в словарь-ffi_motion_log
-            self.ffi_motion_log['y_pos'] = [0] * len(self.ffi_motion_log['time'])
-            print(len(self.ffi_motion_log['x_pos']),
-                        len(self.ffi_motion_log['time']))
-        elif mode == 'Y':
-            self.ffi_motion_log['y_pos'] = pos_log
-            self.ffi_motion_log['x_pos'] = [0] * len(self.ffi_motion_log['time'])
-            print(len(self.ffi_motion_log['y_pos']),
-                        len(self.ffi_motion_log['time']))
-            
-        fig = calc.firstFieldIntegral(self.ffi_motion_log, mode, speed)
-            
-        try:
-            # 1. Создаем буфер в памяти
-            buf = io.BytesIO()
-            # 2. Сохраняем фигуру в буфер в формате PNG
-            #    dpi можно подобрать для нужного размера/качества на экране (напр. 96)
-            fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
-            buf.seek(0) # Перемещаем указатель в начало буфера
+        # if mode == 'X':                                                  # Вспоминаем, в какой плоскости двигались и возвращаем
+        #     self.ffi_motion_log['x_pos'] = pos_log                  # список координат в словарь-ffi_motion_log
+        #     self.ffi_motion_log['y_pos'] = [0] * len(self.ffi_motion_log['time'])
+        #     print(len(self.ffi_motion_log['x_pos']),
+        #                 len(self.ffi_motion_log['time']))
+        # elif mode == 'Y':
+        #     self.ffi_motion_log['y_pos'] = pos_log
+        #     self.ffi_motion_log['x_pos'] = [0] * len(self.ffi_motion_log['time'])
+        #     print(len(self.ffi_motion_log['y_pos']),
+        #                 len(self.ffi_motion_log['time']))
+        
+        self.ffi_worker = FFIMeasurementWorker(self.stand, ffi_axes, nano, distance, speed, mode)
+        self.ffi_worker.log_ready.connect(self.handle_ffi_log)
+        self.ffi_worker.error.connect(lambda msg: self.show_error(f"FFI ошибка: {msg}"))
+        self.ffi_worker.start()
+        self.dual_print(f"Измерение FFI успешно запущено, идёт измерение...")
 
-            # 3. Загружаем данные из буфера в QPixmap
+        # fig = calc.firstFieldIntegral(self.ffi_motion_log, mode, speed)
+            
+        # try:
+        #     # 1. Создаем буфер в памяти
+        #     buf = io.BytesIO()
+        #     # 2. Сохраняем фигуру в буфер в формате PNG
+        #     #    dpi можно подобрать для нужного размера/качества на экране (напр. 96)
+        #     fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+        #     buf.seek(0) # Перемещаем указатель в начало буфера
+
+        #     # 3. Загружаем данные из буфера в QPixmap
+        #     pixmap = QtGui.QPixmap()
+        #     pixmap.loadFromData(buf.getvalue())
+        #     buf.close() # Закрываем буфер
+
+        #     # !!! ВАЖНО: Закрываем фигуру Matplotlib после использования, чтобы освободить память !!!
+        #     plt.close(fig)
+
+        #     # 4. Устанавливаем QPixmap в ваш QLabel
+        #     self.plot_pic.setPixmap(pixmap)
+        #     # (Опционально) Масштабируем изображение под размер QLabel
+        #     self.plot_pic.setScaledContents(True)
+        #     print("График отображен в QLabel")
+        # except Exception as e:
+        #     self.show_error(f"Неизвестная ошибка в calc.testFFI или отображении графика: {e}")
+        #     if fig: plt.close(fig) # Закрыть фигуру и при других ошибках
+
+    @pyqtSlot(dict)
+    def handle_ffi_log(self, log):
+        # self.ffi_motion_log = log
+        fig = calc.firstFieldIntegral(log, self.ffi_worker.mode, self.ffi_worker.speed)
+
+        try:
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+            buf.seek(0)
             pixmap = QtGui.QPixmap()
             pixmap.loadFromData(buf.getvalue())
-            buf.close() # Закрываем буфер
-
-            # !!! ВАЖНО: Закрываем фигуру Matplotlib после использования, чтобы освободить память !!!
+            buf.close()
             plt.close(fig)
 
-            # 4. Устанавливаем QPixmap в ваш QLabel
             self.plot_pic.setPixmap(pixmap)
-            # (Опционально) Масштабируем изображение под размер QLabel
             self.plot_pic.setScaledContents(True)
-            print("График отображен в QLabel.")
+            self.dual_print("График отображён в QLabel")
         except Exception as e:
-            self.show_error(f"Неизвестная ошибка в calc.testFFI или отображении графика: {e}")
-            if fig: plt.close(fig) # Закрыть фигуру и при других ошибках
-
+            self.show_error(f"Ошибка отображения графика: {e}")
+            if fig:
+                plt.close(fig)
         
     def start_sfi_motion(self):
         """Проверяет режим движения и запускает соответствующий метод."""
@@ -737,72 +761,79 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         else:
             self.dual_print("Успешное подключение к Keithley")
 
-        self.sfi_motion_log = {  # Инициализация лога
-            'time': [],
-            'x_pos_0': [],
-            'x_pos_1': [],
-            'y_pos_0': [],
-            'y_pos_1': [],
-            'eds': [],
-        }
+        # self.sfi_motion_log = {  # Инициализация лога
+        #     'time': [],
+        #     'x_pos_0': [],
+        #     'x_pos_1': [],
+        #     'y_pos_0': [],
+        #     'y_pos_1': [],
+        #     'eds': [],
+        # }
 
-        distances = [-(distance/2), (distance/2)]
-        try:
-            acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(sfi_axes), tuple(distances), acsc.SYNCHRONOUS)
-            self.start_position_updates()
-            acsc.waitMotionEnd(self.stand.hc, master, 20000)
-        except Exception as e:
-            self.dual_print(f"Ошибка при запуске синхронного движения: {e}")
-        else:
-            self.dual_print(f"Функция acsc.toPointM выполнена без ошибок, нить выведена на старт")
-        time.sleep(0.2) #! Чтобы контроллер успел увидеть остановку оси???
-        try:    
-            distances = [distance, -distance]
-            acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(sfi_axes), tuple(distances), acsc.SYNCHRONOUS)
-            self.start_position_updates()
-            #*acsc.toPointM сама добавляет -1 в конец списка осей
-        except Exception as e:
-            self.dual_print(f"Ошибка при запуске основного синхронного движения: {e}")
-        else:
-            self.dual_print(f"Измерение FFI успешно запущено, идёт измерение...")
+        # distances = [-(distance/2), (distance/2)]
+        # try:
+        #     acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(sfi_axes), tuple(distances), acsc.SYNCHRONOUS)
+        #     self.start_position_updates()
+        #     acsc.waitMotionEnd(self.stand.hc, master, 20000)
+        # except Exception as e:
+        #     self.dual_print(f"Ошибка при запуске синхронного движения: {e}")
+        # else:
+        #     self.dual_print(f"Функция acsc.toPointM выполнена без ошибок, нить выведена на старт")
+        # time.sleep(0.2) #! Чтобы контроллер успел увидеть остановку оси???
+        # try:    
+        #     distances = [distance, -distance]
+        #     acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(sfi_axes), tuple(distances), acsc.SYNCHRONOUS)
+        #     self.start_position_updates()
+        #     #*acsc.toPointM сама добавляет -1 в конец списка осей
+        # except Exception as e:
+        #     self.dual_print(f"Ошибка при запуске основного синхронного движения: {e}")
+        # else:
+        #     self.dual_print(f"Измерение FFI успешно запущено, идёт измерение...")
         
-        # Writing log data
-        start_time = time.time()
-        poll_interval = 0.2
-        pos_log_0 = []
-        pos_log_1 = []
-        while True:
-            pos_0 = acsc.getFPosition(self.stand.hc, master)  # Спрашиваем позицию оси у контроллера
-            pos_1 = acsc.getFPosition(self.stand.hc, slave)
-            eds = nano.get_voltage()
-            pos_log_0.append(pos_0)                                     # Добавляем в список координат (X или Y)
-            pos_log_1.append(pos_1)
-            self.sfi_motion_log['time'].append(time.time() - start_time) # Добавляем в список текущее время с момента начала движения
-            self.sfi_motion_log['eds'].append(eds)                       # Добавляем значение эдс от кейтли в список
+        # # Writing log data
+        # start_time = time.time()
+        # poll_interval = 0.2
+        # pos_log_0 = []
+        # pos_log_1 = []
+        # while True:
+        #     pos_0 = acsc.getFPosition(self.stand.hc, master)  # Спрашиваем позицию оси у контроллера
+        #     pos_1 = acsc.getFPosition(self.stand.hc, slave)
+        #     eds = nano.get_voltage()
+        #     pos_log_0.append(pos_0)                                     # Добавляем в список координат (X или Y)
+        #     pos_log_1.append(pos_1)
+        #     self.sfi_motion_log['time'].append(time.time() - start_time) # Добавляем в список текущее время с момента начала движения
+        #     self.sfi_motion_log['eds'].append(eds)                       # Добавляем значение эдс от кейтли в список
 
-            motor_state = acsc.getMotorState(self.stand.hc, master)        # Если ось не движется, то закрываем цикл
-            if motor_state['in position']:
-                self.show_error("Движение успешно завершено")
-                break
-            time.sleep(poll_interval)                                    # Пауза между опросами            
+        #     motor_state = acsc.getMotorState(self.stand.hc, master)        # Если ось не движется, то закрываем цикл
+        #     if motor_state['in position']:
+        #         self.show_error("Движение успешно завершено")
+        #         break
+        #     time.sleep(poll_interval)                                    # Пауза между опросами            
         
-        if mode == 'X':                                                  # Вспоминаем, в какой плоскости двигались и возвращаем
-            self.sfi_motion_log['x_pos_0'] = pos_log_0                  # список координат в словарь-ffi_motion_log
-            self.sfi_motion_log['x_pos_1'] = pos_log_1
-            self.sfi_motion_log['y_pos_0'] = [0] * len(self.sfi_motion_log['time'])
-            self.sfi_motion_log['y_pos_1'] = [0] * len(self.sfi_motion_log['time'])
-            print(len(self.sfi_motion_log['x_pos_0']),
-                        len(self.sfi_motion_log['time']))
-        elif mode == 'Y':
-            self.sfi_motion_log['y_pos_0'] = pos_log_0
-            self.sfi_motion_log['y_pos_1'] = pos_log_1
-            self.sfi_motion_log['x_pos_0'] = [0] * len(self.sfi_motion_log['time'])
-            self.sfi_motion_log['x_pos_1'] = [0] * len(self.sfi_motion_log['time'])
-            print(len(self.sfi_motion_log['y_pos_0']),
-                        len(self.sfi_motion_log['time']))
+        # if mode == 'X':                                                  # Вспоминаем, в какой плоскости двигались и возвращаем
+        #     self.sfi_motion_log['x_pos_0'] = pos_log_0                  # список координат в словарь-ffi_motion_log
+        #     self.sfi_motion_log['x_pos_1'] = pos_log_1
+        #     self.sfi_motion_log['y_pos_0'] = [0] * len(self.sfi_motion_log['time'])
+        #     self.sfi_motion_log['y_pos_1'] = [0] * len(self.sfi_motion_log['time'])
+        #     print(len(self.sfi_motion_log['x_pos_0']),
+        #                 len(self.sfi_motion_log['time']))
+        # elif mode == 'Y':
+        #     self.sfi_motion_log['y_pos_0'] = pos_log_0
+        #     self.sfi_motion_log['y_pos_1'] = pos_log_1
+        #     self.sfi_motion_log['x_pos_0'] = [0] * len(self.sfi_motion_log['time'])
+        #     self.sfi_motion_log['x_pos_1'] = [0] * len(self.sfi_motion_log['time'])
+        #     print(len(self.sfi_motion_log['y_pos_0']),
+        #                 len(self.sfi_motion_log['time']))
+
+        self.ffi_worker = SFIMeasurementWorker(self.stand, sfi_axes, nano, distance, speed, mode)
+        self.ffi_worker.log_ready.connect(self.handle_sfi_log)
+        self.ffi_worker.error.connect(lambda msg: self.show_error(f"SFI ошибка: {msg}"))
+        self.ffi_worker.start()
+        self.dual_print(f"Измерение SFI успешно запущено, идёт измерение...")
             
-
-        fig = calc.secondFieldIntegral(self.sfi_motion_log, mode, speed)
+    @pyqtSlot(dict)
+    def handle_sfi_log(self, log):
+        fig = calc.secondFieldIntegral(log, self.sfi_worker.mode, self.sfi_worker.speed)
             
         try:
             # 1. Создаем буфер в памяти
