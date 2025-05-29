@@ -30,7 +30,7 @@ def firstFieldIntegral(log: dict, mode: str, vel: float):
 
     fig, ax = plt.subplots()
 
-    save_path = f"testlogs\\FFItest\\FFIgraph_{str_current_time}.png"
+    save_path = f"Logs\\FFI\\FFIgraph_{str_current_time}.png"
         
     ax.plot(current_pos, ffi)
     ax.set_xlabel(f"Координата, {mode}")
@@ -71,7 +71,7 @@ def secondFieldIntegral(log: dict, mode : str, vel: float):
 
     fig, ax = plt.subplots()
 
-    save_path = f"testlogs\\SFItest\\SFIgraph_{str_current_time}.png"
+    save_path = f"Logs\\SFI\\SFIgraph_{str_current_time}.png"
         
     ax.plot(current_pos_0, sfi)
     ax.set_xlabel(f"Координата, {mode}")
