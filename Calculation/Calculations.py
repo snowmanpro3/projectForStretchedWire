@@ -14,23 +14,25 @@ def firstFieldIntegral(log: dict, mode: str, vel: float):
     save_path_csv = f"Logs\\FFI\\FFIlog_{str_current_time}.csv"  # Путь сохранения в папку FFItest
     
     df = pd.DataFrame(log)
-    #! Если нужно удалить колонку ЭДС раскоментируй след строку
-    # df.drop(columns='eds')
+    if mode == 'X':
+          pos = df['x_pos']
+    elif mode == 'Y':
+          pos = df['y_pos']
     df.index.name = 'Index'  # Присваю имя index индексам (создаются автоматически, можно даже отключить)
     df.to_csv(save_path_csv, sep = ',') 
 
-    x_pos_previous = df['x_pos'].to_numpy()[:-1]
+    pos_previous = pos.to_numpy()[:-1]
     time = np.array(df['time'])[1:]
-    x_pos = df['x_pos'].to_numpy()[1:]
+    current_pos = pos.to_numpy()[1:]
     eds = np.array(df['eds'])[1:]
     ffi = eds / vel
-    print(len(x_pos), len(ffi))
+    print(len(current_pos), len(ffi))
 
     fig, ax = plt.subplots()
 
     save_path = f"testlogs\\FFItest\\FFIgraph_{str_current_time}.png"
         
-    ax.plot(x_pos, ffi)
+    ax.plot(current_pos, ffi)
     ax.set_xlabel(f"Координата, {mode}")
     ax.set_ylabel(f"Первый магнитный интеграл, Тл/м")
     ax.set_title('Распределение первого магнитного интеграла')
@@ -49,24 +51,29 @@ def secondFieldIntegral(log: dict, mode : str, vel: float):
     save_path_csv = f"Logs\\SFI\\SFIlog_{str_current_time}.csv"  # Путь сохранения в папку FFItest
     
     df = pd.DataFrame(log)
-    #! Если нужно удалить колонку ЭДС раскоментируй след строку
-    # df.drop(columns='eds')
+    if mode == 'X':
+          pos_0 = df['x_pos_0']
+          pos_1 = df['x_pos_1']
+    elif mode == 'Y':
+          pos_0 = df['y_pos_0']
+          pos_1 = df['y_pos_1']
     df.index.name = 'Index'  # Присваю имя index индексам (создаются автоматически, можно даже отключить)
     df.to_csv(save_path_csv, sep = ',') 
 
-    x_pos_previous = df['x_pos_0'].to_numpy()[:-1]
+    pos_0_previous = pos_0.to_numpy()[:-1]
+    pos_1_previous = pos_1.to_numpy()[:-1]
     time = np.array(df['time'])[1:]
-    x_pos_0 = df['x_pos_0'].to_numpy()[1:]
-    x_pos_1 = df['x_pos_1'].to_numpy()[1:]
+    current_pos_0 = pos_0.to_numpy()[1:]
+    current_pos_1 = pos_1.to_numpy()[1:]
     eds = np.array(df['eds'])[1:]
     sfi = eds*L / (2*vel)
-    print(len(x_pos_0), len(sfi))
+    print(len(current_pos_0), len(sfi))
 
     fig, ax = plt.subplots()
 
     save_path = f"testlogs\\SFItest\\SFIgraph_{str_current_time}.png"
         
-    ax.plot(x_pos_0, sfi)
+    ax.plot(current_pos_0, sfi)
     ax.set_xlabel(f"Координата, {mode}")
     ax.set_ylabel(f"Первый магнитный интеграл, Тл/м")
     ax.set_title('Распределение первого магнитного интеграла')

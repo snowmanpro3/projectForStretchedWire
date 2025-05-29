@@ -17,7 +17,10 @@ class Keithley2182A:
         self.inst.write(":SENS:FUNC 'VOLT'")
         self.inst.write(":VOLT:NPLC 0.01")  # Быстрое измерение
         self.inst.write(":FORM:ELEM READ")  # Только значение
+
         self.inst.write(":TRIG:SOUR IMM")   # Немедленный триггер
+        self.inst.write(":TRIG:COUNT INF")
+        self.inst.write(":INIT:CONT ON")
 
     def get_voltage(self) -> float:
         """
@@ -26,7 +29,7 @@ class Keithley2182A:
         - В режиме 'meas': запускает новое измерение и ждёт результат
         """
         try:
-            return float(self.inst.query(":READ?").strip())
+            return float(self.inst.query(":FETCH?").strip())
         except Exception as e:
             print(f"[!] Ошибка при получении ЭДС: {e}")
             return float("nan")
@@ -78,7 +81,7 @@ if __name__ == '__main__':
     nano = Keithley2182A(resource="GPIB0::7::INSTR", mode='meas')
     # print(k.keithley.supports_event())  # должно быть True (проверка поддержки SRQ)
     start_time = time.time()
-    poll_interval = 0.2
+    poll_interval = 0.05
     pos_log = []
     N = 0
     while N < 15:

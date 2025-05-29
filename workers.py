@@ -23,7 +23,6 @@ class SingleAxisWorker(QThread):
         while self.running:
             try:
                 # Получаем данные оси
-                # pos = self.stand.axes[self.axis_id].get_pos()
                 pos = acsc.getFPosition(self.stand.hc, self.axis_id)
                 axis_state = acsc.getAxisState(self.stand.hc, self.axis_id)
                 mot_state = acsc.getMotorState(self.stand.hc, self.axis_id)
@@ -50,6 +49,7 @@ class SingleAxisWorker(QThread):
 class FFIMeasurementWorker(QThread):
     log_ready = pyqtSignal(dict)
     error = pyqtSignal(str)
+    pos_new = pyqtSignal(float)
 
     def __init__(self, stand, axes, keithley, distance, speed, mode):
         super().__init__()
@@ -64,16 +64,14 @@ class FFIMeasurementWorker(QThread):
     def run(self):
         distances = [-(self.distance/2), -(self.distance/2)]
         try:
-            self.start_position_updates()
             acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(self.ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
-            acsc.waitMotionEnd(self.stand.hc, master, 20000)
+            acsc.waitMotionEnd(self.stand.hc, self.ffi_axes[0], 20000)
         except Exception as e:
             print(f"Ошибка при запуске синхронного движения: {e}")
         else:
             print(f"Функция acsc.toPointM выполнена без ошибок, нить выведена на старт")
         time.sleep(0.2) #! Чтобы контроллер успел увидеть остановку оси???
         try:    
-            self.start_position_updates()
             distances = [self.distance, self.distance]
             acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(self.ffi_axes), tuple(distances), acsc.SYNCHRONOUS)
             time.sleep(0.2)
@@ -99,12 +97,12 @@ class FFIMeasurementWorker(QThread):
                 if self.mode == 'X':
                     log['x_pos'].append(pos)
                     log['y_pos'].append(0.0)
-                else:
+                elif self.mode == 'Y':
                     log['y_pos'].append(pos)
                     log['x_pos'].append(0.0)
 
-                state = acsc.getMotorState(self.stand.hc, master)
-                if state['in position']:
+                mot_state = acsc.getMotorState(self.stand.hc, master)
+                if mot_state['in position']:
                     break
                 time.sleep(0.1)
             self.log_ready.emit(log)
@@ -130,7 +128,6 @@ class SFIMeasurementWorker(QThread):
         distances = [-(self.distance/2), (self.distance/2)]
         try:
             acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(self.sfi_axes), tuple(distances), acsc.SYNCHRONOUS)
-            self.start_position_updates()
             acsc.waitMotionEnd(self.stand.hc, master, 20000)
         except Exception as e:
             print(f"Ошибка при запуске синхронного движения: {e}")
@@ -141,7 +138,6 @@ class SFIMeasurementWorker(QThread):
         try:    
             distances = [self.distance, -self.distance]
             acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(self.sfi_axes), tuple(distances), acsc.SYNCHRONOUS)
-            self.start_position_updates()
             #*acsc.toPointM сама добавляет -1 в конец списка осей
         except Exception as e:
             print(f"Ошибка при запуске основного синхронного движения: {e}")
