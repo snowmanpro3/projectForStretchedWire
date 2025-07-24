@@ -2,6 +2,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 import acsc_modified as acsc
 import time
 import numpy as np
+from scipy.signal import savgol_filter
 
 
 class SingleAxisWorker(QThread):
@@ -96,8 +97,8 @@ class FFIMeasurementWorker(QThread):
             }
             start_time = time.time()
             while self.running:
-                pos = acsc.getFPosition(self.stand.hc, master)
                 eds = self.keithley.get_voltage()
+                pos = acsc.getFPosition(self.stand.hc, master)
                 log['eds'].append(eds)
                 log['time'].append(time.time() - start_time)
                 if self.mode == 'X':
@@ -110,7 +111,7 @@ class FFIMeasurementWorker(QThread):
                 mot_state = acsc.getMotorState(self.stand.hc, master)
                 if mot_state['in position']:
                     break
-                time.sleep(0.1)
+                time.sleep(0.01)
             self.log_ready.emit(log)
         except Exception as e:
             self.error.emit(str(e))
@@ -135,7 +136,7 @@ class SFIMeasurementWorker(QThread):
         distances = [-(self.distance/2), (self.distance/2)]
         try:
             acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, tuple(self.sfi_axes), tuple(distances), acsc.SYNCHRONOUS)
-            acsc.waitMotionEnd(self.stand.hc, master, 20000)
+            acsc.waitMotionEnd(self.stand.hc, self.sfi_axes[0], 20000)
         except Exception as e:
             self.progress_signal.emit(f"Ошибка при запуске синхронного движения: {e}")
             print(f"Ошибка при запуске синхронного движения: {e}")
@@ -153,7 +154,7 @@ class SFIMeasurementWorker(QThread):
             print(f"Ошибка при запуске основного синхронного движения: {e}")
         else:
             self.progress_signal.emit(f"Измерение FFI успешно запущено, идёт измерение...")
-            print(f"Измерение FFI успешно запущено, идёт измерение...")
+            print(f"Измерение SFI успешно запущено, идёт измерение...")
 
         try:
             master = self.sfi_axes[0]
@@ -168,9 +169,9 @@ class SFIMeasurementWorker(QThread):
             }
             start_time = time.time()
             while self.running:
+                eds = self.keithley.get_voltage()
                 pos_m = acsc.getFPosition(self.stand.hc, master)
                 pos_s = acsc.getFPosition(self.stand.hc, slave)
-                eds = self.keithley.get_voltage()
                 log['time'].append(time.time() - start_time)
                 log['eds'].append(eds)
                 if self.mode == 'X':
@@ -187,13 +188,13 @@ class SFIMeasurementWorker(QThread):
                 state = acsc.getMotorState(self.stand.hc, master)
                 if state['in position']:
                     break
-                time.sleep(0.1)
+                time.sleep(0.01)
             self.log_ready.emit(log)
         except Exception as e:
             self.error.emit(str(e))
 
 
-class FindMagneticAxisWorker(QThread):
+class FindMagneticAxisWorker_PREVIOUS(QThread):
     # Signals to communicate with the main GUI thread
     progress_signal = pyqtSignal(str)  # To send informational messages (like dual_print)
     error_signal = pyqtSignal(str)    # To send error messages (like show_error)
@@ -221,7 +222,7 @@ class FindMagneticAxisWorker(QThread):
                 # Ensure axis is enabled - direct call to controller
                 acsc.enable(self.stand.hc, axis_id) # Or self.stand.axes[axis_id].enable() if newACS wraps it
                 # Set speed - direct call to controller
-                acsc.setSPeed(self.stand.hc, axis_id, current_speed) # Or self.stand.axes[axis_id].set_speed()
+                acsc.setVelocity(self.stand.hc, axis_id, current_speed) # Or self.stand.axes[axis_id].set_speed()
 
             self.progress_signal.emit(f"Скорость {current_speed} мм/с установлена для осей {axes_pair}.")
 
@@ -435,3 +436,178 @@ class FindMagneticAxisWorker(QThread):
         # Optionally, if scans involve blocking calls that don't check self.running,
         # you might need to use acsc.killAll here if immediate stop is critical.
         # However, _perform_scan_and_center_worker already has a self.running check in its loop.
+
+
+
+class FindMagneticAxisWorker(QThread):
+    # Сигналы для связи с GUI
+    progress_signal = pyqtSignal(str)
+    error_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(dict)
+
+    def __init__(self, stand, keithley, scan_distance, scan_speed,
+                 x_center, x_width, num_points_x,
+                 y_center, y_width, num_points_y):
+        super().__init__()
+        self.stand = stand
+        self.keithley = keithley
+        self.scan_distance = scan_distance
+        self.scan_speed = scan_speed
+        
+        self.x_coords = np.linspace(x_center - x_width / 2, x_center + x_width / 2, num_points_x)
+        self.y_coords = np.linspace(y_center - y_width / 2, y_center + y_width / 2, num_points_y)
+        
+        self.running = True
+        self.L_wire = 2.0
+
+    def _perform_line_scan_and_find_center(self, scan_type, mode):
+        """
+        Выполняет одно длинное сканирование по линии, сглаживает данные
+        и возвращает точную координату центра (пересечения нуля).
+        """
+        if mode == 'X':
+            axes_pair = [1, 3]
+            scan_coords = self.x_coords
+        elif mode == 'Y':
+            axes_pair = [0, 2]
+            scan_coords = self.y_coords
+        else:
+            self.error_signal.emit(f"Неверный режим сканирования: {mode}")
+            return None
+        
+        master = axes_pair[0]
+        start_pos, end_pos = scan_coords[0], scan_coords[-1]
+        scan_length = abs(end_pos - start_pos)
+        
+        try:
+            log_data = {'pos': [], 'eds': []}
+            
+            acsc.toPointM(self.stand.hc, 0, axes_pair, (start_pos, start_pos), acsc.SYNCHRONOUS)
+            acsc.waitMotionEnd(self.stand.hc, master, 30000)
+
+            move_rel = end_pos - start_pos
+            acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, axes_pair, (move_rel, move_rel), acsc.SYNCHRONOUS)
+            
+            max_log_duration = (scan_length / self.scan_speed) * 1.5 + 10
+            log_end_time = time.time() + max_log_duration
+            while time.time() < log_end_time and self.running:
+                pos_m = acsc.getFPosition(self.stand.hc, master)
+                eds_v = self.keithley.get_voltage()
+                log_data['pos'].append(pos_m)
+                log_data['eds'].append(eds_v)
+                
+                mot_state = acsc.getMotorState(self.stand.hc, master)
+                if mot_state['in position']: break
+                time.sleep(0.05)
+
+            if not log_data['pos'] or not log_data['eds']: return None
+
+            pos = np.array(log_data['pos'])
+            eds = np.array(log_data['eds'])
+            
+            if scan_type == "FFI":
+                integral_values = eds / self.scan_speed
+            else: # SFI
+                integral_values = (eds * self.L_wire) / (2.0 * self.scan_speed)
+            
+            # --- КЛЮЧЕВОЙ ШАГ: ФИЛЬТРАЦИЯ ---
+            # Параметры (window_length, polyorder) нужно подобрать под ваш уровень шума
+            # window_length должен быть нечетным
+            if len(integral_values) > 11:
+                smoothed_integrals = savgol_filter(integral_values, window_length=11, polyorder=2)
+            else:
+                smoothed_integrals = integral_values
+
+            # --- ПОИСК НУЛЯ ПО ОТФИЛЬТРОВАННЫМ ДАННЫМ ---
+            sign = np.sign(smoothed_integrals)
+            zero_crossings_indices = np.where(np.diff(sign))[0]
+            
+            if len(zero_crossings_indices) > 0:
+                idx1 = zero_crossings_indices[0]
+                idx2 = idx1 + 1
+                
+                y1, y2 = smoothed_integrals[idx1], smoothed_integrals[idx2]
+                x1, x2 = pos[idx1], pos[idx2]
+                center_coord = x1 - y1 * (x2 - x1) / (y2 - y1)
+            else:
+                self.progress_signal.emit(f"Предупреждение: Пересечение нуля не найдено для {scan_type}-{mode}. Ищем минимум модуля.")
+                min_abs_idx = np.argmin(np.abs(smoothed_integrals))
+                center_coord = pos[min_abs_idx]
+                
+            return center_coord
+
+        except Exception as e:
+            self.error_signal.emit(f"Ошибка в _perform_line_scan... ({scan_type} {mode}): {str(e)}")
+            return None
+
+    def run(self):
+        self.progress_signal.emit("Запуск эффективного поиска оси (сканирование линиями)...")
+        
+        # --- Этап 1: Сканирование по строкам (поиск X-центра) ---
+        x_centers_ffi, x_centers_sfi = [], []
+        self.progress_signal.emit("\n--- Этап 1: Сканирование по строкам (поиск X центра) ---")
+        for y_pos in self.y_coords:
+            if not self.running: return
+            self.progress_signal.emit(f"Сканируем строку при Y = {y_pos:.3f}")
+            
+            acsc.toPointM(self.stand.hc, 0, (0, 2), (y_pos, y_pos), acsc.SYNCHRONOUS)
+            acsc.waitMotionEnd(self.stand.hc, 0, 30000)
+            
+            x_ffi = self._perform_line_scan_and_find_center('FFI', 'X')
+            if x_ffi is None: return
+            x_centers_ffi.append(x_ffi)
+
+            x_sfi = self._perform_line_scan_and_find_center('SFI', 'X')
+            if x_sfi is None: return
+            x_centers_sfi.append(x_sfi)
+
+        # --- Этап 2: Сканирование по столбцам (поиск Y-центра) ---
+        y_centers_ffi, y_centers_sfi = [], []
+        self.progress_signal.emit("\n--- Этап 2: Сканирование по столбцам (поиск Y центра) ---")
+        for x_pos in self.x_coords:
+            if not self.running: return
+            self.progress_signal.emit(f"Сканируем столбец при X = {x_pos:.3f}")
+            
+            acsc.toPointM(self.stand.hc, 0, (1, 3), (x_pos, x_pos), acsc.SYNCHRONOUS)
+            acsc.waitMotionEnd(self.stand.hc, 1, 30000)
+
+            y_ffi = self._perform_line_scan_and_find_center('FFI', 'Y')
+            if y_ffi is None: return
+            y_centers_ffi.append(y_ffi)
+
+            y_sfi = self._perform_line_scan_and_find_center('SFI', 'Y')
+            if y_sfi is None: return
+            y_centers_sfi.append(y_sfi)
+            
+        # --- Этап 3: Анализ и нахождение точки пересечения ---
+        self.progress_signal.emit("\n--- Этап 3: Анализ данных и поиск центра ---")
+        try:
+            m1, c1 = np.polyfit(self.y_coords, x_centers_ffi, 1)
+            m2, c2 = np.polyfit(self.x_coords, y_centers_ffi, 1)
+            
+            if abs(1 - m1 * m2) < 1e-9:
+                self.error_signal.emit("Линии FFI параллельны, невозможно найти пересечение.")
+                optimal_x_ffi, optimal_y_ffi = np.mean(x_centers_ffi), np.mean(y_centers_ffi)
+            else:
+                optimal_x_ffi = (m1 * c2 + c1) / (1 - m1 * m2)
+                optimal_y_ffi = m2 * optimal_x_ffi + c2
+            
+            self.progress_signal.emit(f"Центр по FFI: X={optimal_x_ffi:.4f}, Y={optimal_y_ffi:.4f}")
+
+        except Exception as e:
+            self.error_signal.emit(f"Ошибка при анализе и поиске пересечения: {e}")
+            return
+            
+        # --- Этап 4: Финальное перемещение ---
+        self.progress_signal.emit(f"\nПеремещение на найденную магнитную ось (по FFI): X={optimal_x_ffi:.4f}, Y={optimal_y_ffi:.4f}")
+        acsc.toPointM(self.stand.hc, 0, (1, 3), (optimal_x_ffi, optimal_x_ffi), acsc.SYNCHRONOUS)
+        acsc.toPointM(self.stand.hc, 0, (0, 2), (optimal_y_ffi, optimal_y_ffi), acsc.SYNCHRONOUS)
+        acsc.waitMotionEnd(self.stand.hc, 0, 30000)
+        acsc.waitMotionEnd(self.stand.hc, 1, 30000)
+        
+        final_positions = {f"axis_{i}": acsc.getFPosition(self.stand.hc, i) for i in range(4)}
+        self.finished_signal.emit(final_positions)
+
+    def stop(self):
+        self.running = False
+        self.progress_signal.emit("Получен сигнал остановки...")    

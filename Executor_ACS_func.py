@@ -2,7 +2,7 @@
 """
 ACS Controller Executable Script
 -----------------------------------
-This script connects to the ACS controller and manages axis positions
+This script connects to the ACS controller and manages axis movement
 """
 
 from __future__ import division, print_function
@@ -398,7 +398,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
 
         if self.currentTabName == "Settings":  # Замените на актуальное название вкладки
             # Обновляем значения
-            axis_data["pos_label"].setText(f"Позиция: {pos:.4f} мм")
+            axis_data["pos_label"].setText(f"Позиция: {pos:.4f}")
             axis_data["is_moving_label"].setText(f"Движение: {'Да' if moving else 'Нет'}")
             axis_data["is_in_pos_label"].setText(f"На месте: {'Да' if in_pos else 'Нет'}")
 
@@ -410,7 +410,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             axis_data["is_in_pos_indicator"].setStyleSheet(f"background-color: {in_pos_color}")
 
         elif self.currentTabName == "Выбор режимов движения":
-            self.tablePosition.item(axis_id, 1).setText(f"Позиция: {pos:.4f} мм")
+            self.tablePosition.item(axis_id, 1).setText(f"Позиция: {pos:.4f}")
 
     @pyqtSlot(int, str)
     def handle_axis_error(self, axis_id, error_msg):
@@ -423,14 +423,6 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         """Остановка потоков при закрытии окна"""
         self.stop_position_updates()
         super().closeEvent(event)
-
-    def findMagAxis(self):
-        '''
-        Сначала необходимо на странице настроек/управления расположить нить на
-        предополагаемую магнитную ось (на глаз)
-        '''
-        #! x-компонента (СНАЧАЛА довести до ума первый и второй интеграл, т.к. нахождение оси с их помощью)
-        pass
 
 
 
@@ -644,16 +636,14 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             if mode and distance != 0:
                 if mode == 'X':
                     sfi_axes = [1,3]
-                    master = sfi_axes[0]
-                    slave = sfi_axes[1]
+                    self.selected_axes = sfi_axes
                     for axis in sfi_axes:
                         if not self.axes_data[axis]["state"]:
                             self.axes_data[axis]['axis_obj'].enable()
                             self.axes_data[axis]["state"] = True
                 elif mode == 'Y':
                     sfi_axes = [0,2]
-                    master = sfi_axes[0]
-                    slave = sfi_axes[1]
+                    self.selected_axes = sfi_axes
                     for axis in sfi_axes:
                         if not self.axes_data[axis]["state"]:
                             self.axes_data[axis]['axis_obj'].enable()
@@ -727,7 +717,8 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         print(f"Нажата кнопка 'Старт', выбран режим: {selected_mode}")
 
         if selected_mode == "По окружности":
-            self.start_circular_motion()
+            # self.start_circular_motion()
+            self.simpleTest()
         elif selected_mode == "Первый магнитный интеграл":
             self.start_ffi_motion()
         elif selected_mode == "Второй магнитный интеграл":  #Todo добавить возврат в ноль мб
@@ -814,16 +805,15 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         radius = float(self.circ_radius_input_test.text())
 
         axesM = [0, 1]
+        acsc.splitAll(self.stand.hc, acsc.SYNCHRONOUS)  # Разделяем оси для многосегментного движения
+        acsc.group(self.stand.hc, axesM, acsc.SYNCHRONOUS)  # Создаем группу для осей
         leader = axesM[0]
         
-        center_y = self.axes_data[0]["axis_obj"].get_pos()  # Получаем текущую позицию оси 0
-        center_x = self.axes_data[1]["axis_obj"].get_pos()  # Получаем текущую позицию оси 1
-        circle_angle_rad = 2*np.pi
-        center_points = [center_y, center_x]
+        center_points = [0, 0]  # Центр окружности
+        start_points = [500, 0]
+        final_points = [0, 500]
 
-        start_x = center_x + radius
-        start_y = center_y
-        start_points = [start_y, start_x]
+        circle_angle_rad = 2*np.pi
 
         self.stand.enable_all()  # Включаем все оси перед движением
         acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, axesM, start_points, acsc.SYNCHRONOUS)
@@ -851,7 +841,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                                         acsc.NONE, # BitNumber
                                         acsc.NONE, # Polarity
                                         acsc.NONE, # MotionDelay
-                                        None       # Wait (синхронный вызов планирования)
+                                        acsc.SYNCHRONOUS       # Wait (синхронный вызов планирования)
                                         )
         except Exception as e:
             self.dual_print(f"Ошибка при запуске движения по окружности (extendedSegmentedMotionV2): {e}")
@@ -884,7 +874,7 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
                                acsc.NONE,      # MinSegmentLength
                                acsc.NONE,      # MaxAllowedDeviation
                                acsc.NONE,      # LciState
-                               None            # Wait (синхронный вызов планирования)
+                               acsc.SYNCHRONOUS            # Wait (синхронный вызов планирования)
                                )
         except Exception as e:
             self.dual_print(f"Ошибка при добавлении дуги (acsc.segmentArc2V2): {e}")
@@ -893,7 +883,8 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
             self.dual_print(f"Функция acsc.segmentArc2V2 выполнена без ошибок")
         
         try:
-            acsc.endSequenceM(self.stand.hc, axesM, None)
+            acsc.endSequenceM(self.stand.hc, axesM, acsc.SYNCHRONOUS)
+            acsc.splitAll(self.stand.hc, acsc.SYNCHRONOUS)  # Разделяем оси для многосегментного движения
             '''The function informs the controller, that no more points 
         or segments will be specified for the current multi-axis motion.
         Эта функция сигнализирует контроллеру: "Все, описание траектории закончено.
@@ -908,6 +899,90 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         self.dual_print('Прибыла в начальную точку')
 
 
+    def lineSegmentTest(self):
+        axes = [0, 2]
+        velocity = 200  # в единицах контроллера (обычно импульсы/сек)
+        start = [
+            acsc.getFPosition(self.stand.hc, 0, None),
+            acsc.getFPosition(self.stand.hc, 2, None)
+        ]
+        final = [start[0] + 1000, start[1] + 1500]
+
+        # Включаем оси
+        acsc.enable(self.stand.hc, 0, acsc.SYNCHRONOUS)
+        acsc.enable(self.stand.hc, 2, acsc.SYNCHRONOUS)
+
+        # Группируем оси
+        acsc.splitAll(self.stand.hc, acsc.SYNCHRONOUS)
+        acsc.group(self.stand.hc, axes, acsc.SYNCHRONOUS)
+
+        # Планирование начала сегментного движения
+        res = acsc.extendedSegmentedMotionV2(
+            self.stand.hc,
+            acsc.AMF_VELOCITY,
+            axes,
+            start,
+            velocity,
+            *[acsc.NONE] * 16,
+            acsc.SYNCHRONOUS
+        )
+        self.dual_print(f"✅ extendedSegmentedMotionV2 выполнен, возврат: {res}")
+        # Добавляем прямолинейный сегмент
+        
+        result = acsc.segmentLineV2(
+            self.stand.hc,
+            acsc.AMF_VELOCITY | acsc.AMF_ENDVELOCITY,
+            axes,
+            final,
+            velocity,
+            velocity,
+            acsc.NONE,
+            None, None,
+            acsc.NONE,
+            None,
+            acsc.NONE,
+            acsc.NONE,
+            acsc.NONE,
+            acsc.NONE,
+            acsc.SYNCHRONOUS
+        )
+        self.dual_print(f"✅ segmentLineV2 выполнен, возврат: {result}")
+
+        # Завершаем и запускаем движение
+        acsc.endSequenceM(self.stand.hc, axes, acsc.SYNCHRONOUS)
+        acsc.waitMotionEnd(self.stand.hc, axes[0], 30000)
+
+        self.dual_print("✅ Движение завершено")
+
+
+    def circleBuffer(self):
+        program = """
+        ENABLE 0
+        ENABLE 1
+        ENABLE 2
+        ENABLE 3
+        MFLAGS(2).#DEFCON = 0
+        CONNECT RPOS(2) = APOS(0)
+        DEPENDS 2, 0
+        MFLAGS(3).#DEFCON = 0
+        CONNECT RPOS(3) = APOS(1)
+        DEPENDS 3, 1
+        GROUP (0,1,2,3)
+        MSEG (0,1),0,0 
+        ARC1 (0,1), 1,0,2,0,+ ! Add arc segment with center(1,0), final point (1,-1, clockwise rotation.
+        ARC1 (0,1), 1,0,0,0,+
+        ENDS (0,1)
+        SPLITALL
+        STOP
+        """
+
+        # Загрузка и запуск из Python:
+        acsc.cleanBuffer(self.stand.hc, 0)
+        acsc.loadBuffer(self.stand.hc, 0, program)
+        acsc.compileBuffer(self.stand.hc, 0)
+        acsc.runBuffer(self.stand.hc, 0)
+
+
     def check_mode_then_start_test(self):
         """Проверяет режим движения и запускает соответствующий метод."""
         if not self.stand:
@@ -918,7 +993,8 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         print(f"Нажата кнопка 'Старт', выбран режим: {selected_mode}")
 
         if selected_mode == "По окружности":
-            self.circle_test()
+            self.circleBuffer()
+            # self.simpleTest()
         elif selected_mode == "Первый магнитный интеграл":
             self.ffi_test()
         elif selected_mode == "Второй магнитный интеграл":  #Todo добавить возврат в ноль мб

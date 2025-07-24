@@ -28,6 +28,7 @@ p = ctypes.pointer
 AMF_WAIT = 0x00000001
 AMF_RELATIVE = 0x00000002
 AMF_VELOCITY = 0x00000004
+AMF_ENDVELOCITY = 0x00000008
 AMF_CYCLIC = 0x00000100
 AMF_CUBIC = 0x00000400
 
@@ -233,6 +234,12 @@ def unregisterEmergencyStop():  #Отменяет регистрацию про�
 def getLastError():  #Возвращает код последней ошибки
     return acs.acsc_GetLastError()
 
+def cleanBuffer(hcomm, buffno, startLine=0, endLine=1000, wait=SYNCHRONOUS):
+    acs.acsc_ClearBuffer(hcomm, int32(buffno), int32(startLine), int32(endLine), wait)
+
+def compileBuffer(hcomm, buffno, wait=SYNCHRONOUS):
+    acs.acsc_CompileBuffer(hcomm, int32(buffno), wait)
+
 def runBuffer(hcomm, buffno, label=None, wait=SYNCHRONOUS): #Запускает буфер (программу) на контроллере
     """Runs a buffer in the controller."""
     if label is not None:
@@ -362,7 +369,12 @@ def go(hcomm, axis, wait=SYNCHRONOUS):  #Начинает движение ук�
 
 # ! By myself
 def goM(hcomm, axes, wait=SYNCHRONOUS): #Начинает движение осей, ожидающих приказа, синхронно
-    acs.GoM(hcomm, axes, wait)
+    axes_array = ctypes.c_int*(len(axes) + 1)
+    axes_c = axes_array()
+    for n in range(len(axes)):
+        axes_c[n] = axes[n]
+        axes_c[-1] = -1
+    acs.acsc_GoM(hcomm, axes_c, wait)
 # ! By myself
 
 def getOutput(hcomm, port, bit, wait=SYNCHRONOUS):  #Возвращает значение цифрового выхода контроллера
@@ -470,7 +482,7 @@ def extendedSegmentedMotionV2(hcomm,
 
     if result == 0:
         raise RuntimeError("acsc_ExtendedSegmentedMotionV2 failed")
-    return True
+    return result
 
 
 #!!!ДОБАВИТЬ ОБРАБОТКУ ВХОДНЫХ АРГУМЕНТОВ (double, tuple и т.д.)
@@ -521,8 +533,64 @@ def segmentArc2V2(hcomm,
     
     if result == 0:
         raise RuntimeError("acsc_ExtendedSegmentedMotionV2 failed")
-    return True
+    return result
 
+
+def segmentLineV2(hcomm,
+                  flags,
+                  axes,
+                  point,
+                  vel,
+                  endVel,
+                  time,
+                  values,
+                  variables,
+                  index,
+                  masks,
+                  extLoopType,
+                  minSegmentLength,
+                  maxAllowedDeviation,
+                  lciState,
+                  wait=SYNCHRONOUS):
+    
+    n = len(axes)
+    axes_c = (ctypes.c_int * (n + 1))(*axes, -1)
+    point_c = (ctypes.c_double * len(point))(*point)
+    
+    result = acs.acsc_SegmentLineV2(hcomm,
+                           flags,
+                           axes_c,
+                           point_c,
+                           ctypes.byref(double(vel)),
+                           ctypes.byref(double(endVel)),
+                           ctypes.byref(double(time)),
+                           ctypes.c_char_p(values.encode()) if values else None,
+                           ctypes.c_char_p(variables.encode()) if variables else None,
+                           ctypes.byref(int64(index)),
+                           ctypes.c_char_p(masks.encode()) if masks else None,
+                           ctypes.byref(int64(extLoopType)),
+                           ctypes.byref(double(minSegmentLength)),
+                           ctypes.byref(double(maxAllowedDeviation)),
+                           ctypes.byref(int64(lciState)),
+                           wait=SYNCHRONOUS)
+    
+    if result == 0:
+        raise RuntimeError("acsc_ExtendedSegmentedMotionV2 failed")
+    return result
+
+def group(hcomm, axes, wait=SYNCHRONOUS):
+    """Groups multiple axes together for synchronized motion."""
+    axes_array = ctypes.c_int*(len(axes) + 1)
+    axes_c = axes_array()
+    for n in range(len(axes)):
+        axes_c[n] = axes[n]
+    axes_c[-1] = -1
+    acs.acsc_Group(hcomm, axes_c, wait)
+
+def splitAll(hcomm, wait=SYNCHRONOUS):
+    """Splits all axes in the controller."""
+    acs.acsc_SplitAll(hcomm, wait)
+    
 def endSequenceM(hcomm, axes, wait=SYNCHRONOUS):
     axes_array = ctypes.c_int*(len(axes) + 1)
     axes_c = axes_array()
@@ -530,6 +598,37 @@ def endSequenceM(hcomm, axes, wait=SYNCHRONOUS):
         axes_c[n] = axes[n]
     axes_c[-1] = -1
     acs.acsc_EndSequenceM(hcomm, axes_c, wait)
+
+def getProgramError(hcomm, nbuf, wait=SYNCHRONOUS):
+    """
+    Возвращает код последней ошибки выполнения для указанного буфера.
+    Для команд, отправленных из Python по API, используется nbuf = -1.
+    """
+    # Создаем объект типа "integer", куда C-функция запишет результат
+    error_code = ctypes.c_int()
+    
+    # Вызываем функцию из DLL, передавая error_code по ссылке (byref)
+    acs.acsc_GetProgramError(hcomm, nbuf, byref(error_code), wait)
+    
+    # Возвращаем значение, которое теперь хранится в нашем объекте
+    return error_code.value
+
+def getErrorString(hcomm, error_code, wait=SYNCHRONOUS):
+    """
+    Возвращает текстовое описание для заданного кода ошибки.
+    """
+    # Создаем буфер для хранения строки, которую вернет C-функция.
+    # 256 байт - более чем достаточно для большинства сообщений об ошибках.
+    buffer_size = 256
+    error_string_buffer = ctypes.create_string_buffer(buffer_size)
+    
+    # Вызываем функцию из DLL, передавая ей код ошибки и буфер для записи текста
+    acs.acsc_GetErrorString(hcomm, error_code, error_string_buffer, buffer_size, wait)
+    
+    # C-функция возвращает байтовую строку.
+    # Мы декодируем ее в обычную строку Python и возвращаем.
+    # errors='ignore' поможет избежать проблем с кодировкой.
+    return error_string_buffer.value.decode('utf-8', errors='ignore')
 
 
 if __name__ == "__main__":  #Этот код выполнится только при запуске файла напрямую
