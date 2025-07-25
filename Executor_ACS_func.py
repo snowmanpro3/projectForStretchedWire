@@ -18,7 +18,7 @@ from PyQt6.QtGui import QTextCursor, QColor
 from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal, QThread, pyqtSlot
 # Импортируем сгенерированный класс. Команда: pyuic6 GUI_for_controller_with_tabs2.ui -o GUI_for_controller_with_tabs2.py
 from GUI_for_controller_with_tabs2 import Ui_MainWindow
-from workers import SingleAxisWorker, FFIMeasurementWorker, SFIMeasurementWorker, FindMagneticAxisWorker
+from workers import SingleAxisWorker, FFIMeasurementWorker, SFIMeasurementWorker, FindMagneticAxisWorker, CircularMotionWorker
 import numpy as np
 import csv
 import matplotlib.pyplot as plt
@@ -425,109 +425,70 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
         super().closeEvent(event)
 
 
-
-    #TODO добавить провекру на совпадение координат противположных осей???
-    def start_circular_motion(self): #! ПОКА ЧТО НАЧИНАЕТ ДВИЖЕНИЕ ИЗ ТОЧКИ ГДЕ СЕЙЧАС НАХОДИТСЯ
-        """
-        Запускает движение нити по окружности с заданными параметрами.
-        Концы нити всегда находятся в одних и тех же координатах.
-        """
+    def startCircularMotionWBuffer(self):
         if not self.stand:
             self.show_error("Контроллер не подключён!")
             return
-
-        # Инициализация лога координат
-        self.circular_motion_log = {
-            'time': [],
-            'theta': [],
-            'x_pos': [],
-            'y_pos': [],
-            'eds':[],
-        }
-        self.start_time = time.time()
-        vector_velocity = float(self.circ_speed_input.text())
-        radius = float(self.circ_radius_input.text())
-
-        axesM = [0, 1, 2, 3]  # List of axes to move (all) for toPointM
-        leader = axesM[0]
-
-        center_x = self.axes_data[1]["axis_obj"].get_pos()  # Получаем текущую позицию оси 1
-        center_y = self.axes_data[0]["axis_obj"].get_pos()  # Получаем текущую позицию оси 0
-        circle_angle_rad = 2*np.pi  # Whole circle
-        center_point = [center_x, center_y]
-        center_points = [center_y, center_x, center_y, center_x]
-
-        start_x = center_x + radius
-        start_y = center_y
-        start_point = [start_x, start_y]
-        start_points = [start_y, start_x, start_y, start_x]
-
-        self.stand.enable_all()  # Включаем все оси перед движением
-        acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, axesM, start_points, acsc.SYNCHRONOUS)
-        acsc.waitMotionEnd(self.stand.hc, leader, 30000)
-        print('Прибыла в начальную точку')
-
+        
+        all_axes = [0, 1, 2, 3]
         try:
-            acsc.extendedSegmentedMotionV2(self.stand.hc, acsc.AMF_VELOCITY,
-                                        axesM, start_points,
-                                        vector_velocity, #? Tangential velocity 😎😎😎!!!!! (мб 10 мм/с)
-                                        acsc.NONE, # EndVelocity
-                                        acsc.NONE, # JunctionVelocity
-                                        acsc.NONE, # Angle
-                                        acsc.NONE, # CurveVelocity
-                                        acsc.NONE, # Deviation
-                                        radius, # Radius
-                                        acsc.NONE, # MaxLength
-                                        acsc.NONE, # StarvationMargin
-                                        None,      # Segments (имя массива, если нужно > 50 сегм.)
-                                        acsc.NONE, # ExtLoopType
-                                        acsc.NONE, # MinSegmentLength
-                                        acsc.NONE, # MaxAllowedDeviation
-                                        acsc.NONE, # OutputIndex
-                                        acsc.NONE, # BitNumber
-                                        acsc.NONE, # Polarity
-                                        acsc.NONE, # MotionDelay
-                                        None       # Wait (синхронный вызов планирования)
-                                        )
+            speed = float(self.ffi_speed_input.text())
+            for axis in all_axes:
+                self.axes_data[axis]['axis_obj'].enable()
+                self.axes_data[axis]["state"] = True
+                self.axes_data[axis]['axis_obj'].set_speed(speed)
+            self.dual_print(f"Оси {all_axes} включены.")
+            self.dual_print(f"Скорость {self.speed} мм/с установлена для осей {all_axes}.")
         except Exception as e:
-            print(f"Ошибка при запуске движения по окружности (extendedSegmentedMotionV2)")
+            self.dual_print(f"Ошибка при включении осей или установке скорости: {e}")
+            print(f"Ошибка при включении осей или установке скорости: {e}")
         
         try:
-            '''Добавляем дугу (360 градусов окружнсоть) 😊😊😊😊😊'''
-            acsc.segmentArc2V2(self.stand.hc,
-                               acsc.AMF_VELOCITY,
-                               axesM,
-                               center_points,
-                               circle_angle_rad,
-                               None,           # FinalPoint (для вторичных осей, если есть)
-                               vector_velocity,      #? Using the previous velosity we input
-                               acsc.NONE,      # EndVelocity 
-                               acsc.NONE,      # Time
-                               None,           # Values (для user variables)
-                               None,           # Variables (для user variables)
-                               acsc.NONE,      # Index (для user variables)
-                               None,           # Masks (для user variables)
-                               acsc.NONE,      # ExtLoopType
-                               acsc.NONE,      # MinSegmentLength
-                               acsc.NONE,      # MaxAllowedDeviation
-                               acsc.NONE,      # LciState
-                               None            # Wait (синхронный вызов планирования)
-                               )
+            radius = float(self.cm_radius_input.text())
+            rotation = str(self.cm_rotation_input.text())
+            angle = float(self.cm_angle_input.text())
         except Exception as e:
-            print(f"Ошибка при добавлении дуги (acsc.segmentArc2V2)")
-        
+            self.dual_print(f"Ошибка чтения параметров кругового движения: {e}")
+
         try:
-            acsc.endSequenceM(self.stand.hc, axesM, None)
-            '''The function informs the controller, that no more points 
-        or segments will be specified for the current multi-axis motion.
-        Эта функция сигнализирует контроллеру: "Все, описание траектории закончено.
-        Больше сегментов не будет.'''
+            nano = ktl(resource="GPIB0::7::INSTR", mode='meas')   #! Создаём экземпляр класса Keithley2182A
         except Exception as e:
-            print(f"Ошибка при завершении сегмента (acsc.endSequenceM)")
-        
-        acsc.waitMotionEnd(self.stand.hc, leader, 30000)
-        print('Прибыла в начальную точку')
-        
+            self.dual_print("Ошибка подключения к Keithley")
+        else:
+            self.dual_print("Успешное подключение к Keithley")
+
+
+        self.cm_worker = CircularMotionWorker(self.stand, nano, speed, radius, rotation, angle)
+        self.cm_worker.log_ready.connect(self.handle_cm_log)
+        self.cm_worker.error.connect(lambda msg: self.show_error(f"CM ошибка: {msg}"))
+        self.cm_worker.progress_signal.connect(self.print_from_workers)
+        self.cm_worker.start()
+        self.start_position_updates()
+        self.dual_print(f"Измерение FFI успешно запущено, идёт измерение...")
+
+
+    @pyqtSlot(dict)
+    def handle_cm_log(self, log):
+        self.cm_motion_log = log
+        # fig = calc.firstFieldIntegral(log, self.ffi_worker.mode, self.ffi_worker.speed)
+
+        # try:
+        #     buf = io.BytesIO()
+        #     fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+        #     buf.seek(0)
+        #     pixmap = QtGui.QPixmap()
+        #     pixmap.loadFromData(buf.getvalue())
+        #     buf.close()
+        #     plt.close(fig)
+
+        #     self.plot_pic.setPixmap(pixmap)
+        #     self.plot_pic.setScaledContents(True)
+        #     self.dual_print("График отображён в QLabel")
+        # except Exception as e:
+        #     self.show_error(f"Ошибка отображения графика: {e}")
+        #     if fig:
+        #         plt.close(fig)
+
 
     def start_ffi_motion(self):
         """Проверяет режим движения и запускает соответствующий метод."""
@@ -788,172 +749,6 @@ class ACSControllerGUI(QMainWindow, Ui_MainWindow):
     @pyqtSlot(str)
     def print_from_workers(self, message):
         self.dual_print(message)
-
-    def circle_test(self):
-        if not self.stand:
-            self.show_error("Контроллер не подключён!")
-            return
-
-        # Инициализация лога координат
-        self.circular_motion_log = {
-            'time': [],
-            'x_pos': [],
-            'y_pos': [],
-        }
-        self.start_time = time.time()
-        vector_velocity = float(self.circ_speed_input_test.text())
-        radius = float(self.circ_radius_input_test.text())
-
-        axesM = [0, 1]
-        acsc.splitAll(self.stand.hc, acsc.SYNCHRONOUS)  # Разделяем оси для многосегментного движения
-        acsc.group(self.stand.hc, axesM, acsc.SYNCHRONOUS)  # Создаем группу для осей
-        leader = axesM[0]
-        
-        center_points = [0, 0]  # Центр окружности
-        start_points = [500, 0]
-        final_points = [0, 500]
-
-        circle_angle_rad = 2*np.pi
-
-        self.stand.enable_all()  # Включаем все оси перед движением
-        acsc.toPointM(self.stand.hc, acsc.AMF_RELATIVE, axesM, start_points, acsc.SYNCHRONOUS)
-        acsc.waitMotionEnd(self.stand.hc, leader, 15000)
-        self.dual_print('Прибыла в начальную точку')
-
-        #!Радиус самой дуги задается через ее геометрические параметры (центр, угол/конечная точка) в команде segmentArc....
-        try:
-            acsc.extendedSegmentedMotionV2(self.stand.hc, acsc.AMF_VELOCITY,
-                                        axesM, start_points,
-                                        vector_velocity, #? Tangential velocity 😎😎😎!!!!! (мб 10 мм/с)
-                                        acsc.NONE, # EndVelocity
-                                        acsc.NONE, # JunctionVelocity
-                                        acsc.NONE, # Angle
-                                        acsc.NONE, # CurveVelocity
-                                        acsc.NONE, # Deviation
-                                        acsc.NONE, # Radius только с флагом ACSC_AMF_CORNERRADIUS
-                                        acsc.NONE, # MaxLength
-                                        acsc.NONE, # StarvationMargin
-                                        acsc.NONE,      # Segments (имя массива, если нужно > 50 сегм.)
-                                        acsc.NONE, # ExtLoopType
-                                        acsc.NONE, # MinSegmentLength
-                                        acsc.NONE, # MaxAllowedDeviation
-                                        acsc.NONE, # OutputIndex
-                                        acsc.NONE, # BitNumber
-                                        acsc.NONE, # Polarity
-                                        acsc.NONE, # MotionDelay
-                                        acsc.SYNCHRONOUS       # Wait (синхронный вызов планирования)
-                                        )
-        except Exception as e:
-            self.dual_print(f"Ошибка при запуске движения по окружности (extendedSegmentedMotionV2): {e}")
-            traceback.print_exc()
-        else:
-            self.dual_print(f"Функция acsc.extendedSegmentedMotionV2 выполнена без ошибок")
-        
-        #!!!⬇️⬇️⬇️⬇️
-        '''
-        Ты все еще передаешь флаг acsc.AMF_VELOCITY и значение vector_velocity в функцию acsc.segmentArc2V2. 
-        Cкорость для сегмента должна наследоваться от той, что задана в extendedSegmentedMotionV2. 
-        Нужно передать 0 во флаги и acsc.NONE (-1) в скорость
-        '''
-        try:
-            '''Добавляем дугу (360 градусов окружнсоть) 😊😊😊😊😊'''
-            acsc.segmentArc2V2(self.stand.hc,
-                               0,
-                               axesM,
-                               center_points,
-                               circle_angle_rad,
-                               None,           # FinalPoint (для вторичных осей, если есть)
-                               acsc.NONE,      #? Using the previous velosity we input
-                               acsc.NONE,      # EndVelocity 
-                               acsc.NONE,      # Time
-                               None,           # Values (для user variables)
-                               None,           # Variables (для user variables)
-                               acsc.NONE,      # Index (для user variables)
-                               None,           # Masks (для user variables)
-                               acsc.NONE,      # ExtLoopType
-                               acsc.NONE,      # MinSegmentLength
-                               acsc.NONE,      # MaxAllowedDeviation
-                               acsc.NONE,      # LciState
-                               acsc.SYNCHRONOUS            # Wait (синхронный вызов планирования)
-                               )
-        except Exception as e:
-            self.dual_print(f"Ошибка при добавлении дуги (acsc.segmentArc2V2): {e}")
-            traceback.print_exc()
-        else:
-            self.dual_print(f"Функция acsc.segmentArc2V2 выполнена без ошибок")
-        
-        try:
-            acsc.endSequenceM(self.stand.hc, axesM, acsc.SYNCHRONOUS)
-            acsc.splitAll(self.stand.hc, acsc.SYNCHRONOUS)  # Разделяем оси для многосегментного движения
-            '''The function informs the controller, that no more points 
-        or segments will be specified for the current multi-axis motion.
-        Эта функция сигнализирует контроллеру: "Все, описание траектории закончено.
-        Больше сегментов не будет.'''
-        except Exception as e:
-            self.dual_print(f"Ошибка при завершении сегмента (acsc.endSequenceM)")
-            #!ВОЗМОЖНО СТОИТ ПЕРВУЮ ФУНКЦИЮ ЗАПУСТИТЬ ПОСЛЕДНЕЙ!!!!
-        else:
-            self.dual_print(f"Функция acsc.endSequenceM выполнена без ошибок")
-        
-        acsc.waitMotionEnd(self.stand.hc, leader, 30000)
-        self.dual_print('Прибыла в начальную точку')
-
-
-    def lineSegmentTest(self):
-        axes = [0, 2]
-        velocity = 200  # в единицах контроллера (обычно импульсы/сек)
-        start = [
-            acsc.getFPosition(self.stand.hc, 0, None),
-            acsc.getFPosition(self.stand.hc, 2, None)
-        ]
-        final = [start[0] + 1000, start[1] + 1500]
-
-        # Включаем оси
-        acsc.enable(self.stand.hc, 0, acsc.SYNCHRONOUS)
-        acsc.enable(self.stand.hc, 2, acsc.SYNCHRONOUS)
-
-        # Группируем оси
-        acsc.splitAll(self.stand.hc, acsc.SYNCHRONOUS)
-        acsc.group(self.stand.hc, axes, acsc.SYNCHRONOUS)
-
-        # Планирование начала сегментного движения
-        res = acsc.extendedSegmentedMotionV2(
-            self.stand.hc,
-            acsc.AMF_VELOCITY,
-            axes,
-            start,
-            velocity,
-            *[acsc.NONE] * 16,
-            acsc.SYNCHRONOUS
-        )
-        self.dual_print(f"✅ extendedSegmentedMotionV2 выполнен, возврат: {res}")
-        # Добавляем прямолинейный сегмент
-        
-        result = acsc.segmentLineV2(
-            self.stand.hc,
-            acsc.AMF_VELOCITY | acsc.AMF_ENDVELOCITY,
-            axes,
-            final,
-            velocity,
-            velocity,
-            acsc.NONE,
-            None, None,
-            acsc.NONE,
-            None,
-            acsc.NONE,
-            acsc.NONE,
-            acsc.NONE,
-            acsc.NONE,
-            acsc.SYNCHRONOUS
-        )
-        self.dual_print(f"✅ segmentLineV2 выполнен, возврат: {result}")
-
-        # Завершаем и запускаем движение
-        acsc.endSequenceM(self.stand.hc, axes, acsc.SYNCHRONOUS)
-        acsc.waitMotionEnd(self.stand.hc, axes[0], 30000)
-
-        self.dual_print("✅ Движение завершено")
-
 
     def circleBuffer(self):
         program = """

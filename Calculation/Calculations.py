@@ -85,27 +85,6 @@ def secondFieldIntegral(log: dict, mode : str, vel: float):
     
     return fig
 
-
-def demoFirstFieldIntegral(X1, X2, vel, eds, save_path=None):
-    first_fi = eds / vel #Удалить пустые строки
-
-    # Создаем фигуру перед построением графика
-    fig, ax = plt.subplots()
-    
-    # Строим график зависимости первого магнитного поля от координаты нити (X1, например)
-    ax.plot(X1, first_fi)
-    ax.set_xlabel('Координата X2 (мм)')
-    ax.set_ylabel('Первый интеграл магнитного поля')
-    ax.set_title('Зависимость первого интеграла магнитного поля от координаты нити')
-    ax.grid(which="both", linestyle="--")  # Сетка для удобства
-
-    if save_path:
-            fig.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"График сохранён как {save_path}")
-    
-    return fig
-
-
 def harmonicAnalysis(X1, X2, Y1, Y2, time, eds, save_path=None):
     vel = []
     vel = (X2 - X1) / time
@@ -148,70 +127,4 @@ def harmonicAnalysis(X1, X2, Y1, Y2, time, eds, save_path=None):
             fig.savefig(save_path, dpi=300, bbox_inches='tight')
             print(f"График сохранён как {save_path}")
     
-    return fig
-
-def testFFI(log: dict, mode: str):
-    current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    str_current_time = str(current_time)
-    save_path_csv = f"testlogs\\FFItest\\FFIlog_{str_current_time}.csv"  # Путь сохранения в папку FFItest
-    
-    df = pd.DataFrame(log)
-    #! Если нужно удалить колонку ЭДС раскоментируй след строку
-    df.drop(columns='eds')
-    df.index.name = 'Index'  # Присваю имя index индексам (создаются автоматически, можно даже отключить)
-    df.to_csv(save_path_csv, sep = ',') 
-
-    x_pos_previous = df['x_pos'].to_numpy()[:-1]
-    time = np.array(df['time'])[1:]
-    x_pos = df['x_pos'].to_numpy()[1:]
-    print(len(time), len(x_pos))
-
-    fig, ax = plt.subplots()
-
-    save_path = f"testlogs\\FFItest\\FFIgraph_{str_current_time}.png"
-        
-    ax.plot(time, x_pos)
-    ax.set_xlabel('Время')
-    ax.set_ylabel(f"Координата, {mode}")
-    ax.set_title('Зависимость')
-    ax.grid(which="both", linestyle="--")  # Сетка для удобства
-
-    if save_path:
-            fig.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"График сохранён как {save_path}")
-    
-    return fig
-
-
-def testSFI(log: dict, mode: str):
-    current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    str_current_time = str(current_time)
-    save_path_csv = f"testlogs\\SFItest\\SFIlog_{str_current_time}.csv"  # Путь сохранения в папку FFItest
-
-    df = pd.DataFrame(log)
-    #! Если нужно удалить колонку ЭДС раскоментируй след строку
-    df.drop(columns='eds')
-    df.index.name = 'Index'  # Присваю имя index индексам (создаются автоматически, можно даже отключить)
-    df.to_csv(save_path_csv, sep = ',') 
-
-    x_pos_previous = df['x_pos_0'].to_numpy()[:-1]
-    time = np.array(df['time'])[1:]
-    x_pos_0 = df['x_pos_0'].to_numpy()[1:]
-    x_pos_1 = df['x_pos_1'].to_numpy()[1:]
-    print(len(time), len(x_pos_0))
-
-    fig, ax = plt.subplots()
-
-    save_path = f"testlogs\\SFItest\\SFIgraph_{str_current_time}.png"
-        
-    ax.plot(time, x_pos_0)
-    ax.set_xlabel('Время')
-    ax.set_ylabel(f"Координата, {mode}")
-    ax.set_title('Зависимость')
-    ax.grid(which="both", linestyle="--")  # Сетка для удобства
-
-    if save_path:
-            fig.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"График сохранён как {save_path}")
-
     return fig
